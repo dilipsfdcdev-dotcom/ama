@@ -1,4 +1,4 @@
-public with sharing class DC_CommissionStep extends DC_BaseStep {
+public with sharing class DC_CommissionStep extends DC_BaseStep implements DC_IWhere {
 
     private static final String SRC_OBJECT   = 'Seaware_Commission_Structure__dlm';
     private static final String ORDER_BY_SRC = 'Agency_ID__c';
@@ -7,6 +7,10 @@ public with sharing class DC_CommissionStep extends DC_BaseStep {
 
     public override String sourceObjectApi()    { return SRC_OBJECT; }
     public override String orderBySourceField() { return ORDER_BY_SRC; }
+
+    public String whereClause() {
+       return 'Last_Modified_Date__c = TODAY';
+    }
 
     public override Set<String> sourceFields() {
         Set<String> f = new Set<String>();
@@ -22,6 +26,8 @@ public with sharing class DC_CommissionStep extends DC_BaseStep {
             SObject rec = t.newSObject();
             rec.put(COMMISSION_EXTID, (String)src.get(ORDER_BY_SRC));
             for (DC_FieldMap m : DC_Mappings.COMMISSION_MAP) {
+                system.debug('fields m.tgt-->'+m.tgt);
+                system.debug('fields src.get(m.src)-->'+src.get(m.src));
                 rec.put(m.tgt, src.get(m.src));
             }
             out.add(rec);

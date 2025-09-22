@@ -46,7 +46,7 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Commission_Land__c','Land_Program__c'),
         new DC_FieldMap('Commission_Mekong__c','Mekong__c'),
         new DC_FieldMap('Commission_Myanmar__c','Myanmar__c'),
-        new DC_FieldMap('Commission_Structure_Name__c','Name'),
+      //  new DC_FieldMap('Commission_Structure_Name__c','Name'),
         new DC_FieldMap('Primary_Type__c','Primary_Type__c')
     };
 
@@ -127,11 +127,11 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Ship_Name__c','Name'),
         new DC_FieldMap('Passengers__c','Passengers__c'),
         new DC_FieldMap('Ship_Code__c','Ship_Code__c'),
-        new DC_FieldMap('Staterooms__c','Staterooms__c'),
-        new DC_FieldMap('Ship_ID__c','Ship_ID__c'),
-        new DC_FieldMap('Ship_Brand__c','Ship_Brand__c'),
-        new DC_FieldMap('Ship_Registry__c','Ship_Registry__c'),
-        new DC_FieldMap('Last_Modified_Date__c','Last_Modified_Date__c')
+        new DC_FieldMap('Staterooms__c','Staterooms__c')
+       // new DC_FieldMap('Ship_ID__c','Ship_ID__c'),
+       // new DC_FieldMap('Ship_Brand__c','Ship_Brand__c'),
+       // new DC_FieldMap('Ship_Registry__c','Ship_Registry__c'),
+        //new DC_FieldMap('Last_Modified_Date__c','Last_Modified_Date__c')
     };
 
     // Sailing__c ← Seaware_Sailing__dlm
