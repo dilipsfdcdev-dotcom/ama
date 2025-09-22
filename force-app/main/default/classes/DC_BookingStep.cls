@@ -1,4 +1,4 @@
-public with sharing class DC_BookingStep extends DC_BaseStep {
+public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWhere{
 
     private static final String SRC_OBJECT = 'Seaware_Booking__dlm';
     private static final String ORDER_BY_SRC = 'Res_ID__c';
@@ -7,6 +7,11 @@ public with sharing class DC_BookingStep extends DC_BaseStep {
 
     public override String sourceObjectApi() { return SRC_OBJECT; }
     public override String orderBySourceField() { return ORDER_BY_SRC; }
+
+    public String whereClause() {
+       return 'Last_Modified_Date__c = TODAY';
+    }
+
 
     public override Set<String> sourceFields() {
         Set<String> f = new Set<String>();

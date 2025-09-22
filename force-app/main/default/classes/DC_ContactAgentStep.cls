@@ -13,58 +13,35 @@ public with sharing class DC_ContactAgentStep extends DC_BaseStep implements DC_
 
     public override Set<String> sourceFields() {
         Set<String> f = new Set<String>();
-        for (DC_FieldMap m : DC_Mappings.CONTACT_AGENT_MAP) {
-            f.add(m.src);
+        
+        // Add main Individual fields from mappings (non-relationship fields)
+        for (DC_FieldMap mapping : DC_Mappings.CONTACT_AGENT_MAP) {
+            if (!DC_RelationshipQueryUtil.isRelationshipField(mapping.src)) {
+                f.add(mapping.src);
+            }
         }
+        
+        // Add order by field if not already included
         f.add(ORDER_BY_SRC);
-        f.add('ssot__PartyId__c'); // for joining to contact points
+        
+        // Add subqueries based on relationship mappings
+        Set<String> subqueries = DC_RelationshipQueryUtil.buildSubqueriesFromMappings(DC_Mappings.CONTACT_AGENT_MAP);
+        f.addAll(subqueries);
+        
         return f;
     }
 
+    // No additional sources - using relationship queries
     public override Map<String, DC_JoinConfig> getAdditionalSources() {
-        Map<String, DC_JoinConfig> sources = new Map<String, DC_JoinConfig>();
-        
-        // Add email contact point
-        sources.put('email', new DC_JoinConfig(
-            'ssot__ContactPointEmail__dlm',
-            new Set<String>{'ssot__EmailAddress__c', 'ssot__PartyId__c'},
-            'ssot__PartyId__c',
-            'ssot__PartyId__c'
-        ));
-        
-        // Add phone contact point
-        sources.put('phone', new DC_JoinConfig(
-            'ssot__ContactPointPhone__dlm',
-            new Set<String>{'ssot__FormattedE164PhoneNumber__c', 'ssot__ExtensionNumber__c', 'ssot__PartyId__c'},
-            'ssot__PartyId__c',
-            'ssot__PartyId__c'
-        ));
-        
-        // Add address contact point
-        sources.put('address', new DC_JoinConfig(
-            'ssot__ContactPointAddress__dlm',
-            new Set<String>{'ssot__AddressLine1__c', 'ssot__CityId__c', 'ssot__StateProvinceId__c', 'ssot__CountryId__c', 'Zipcode__c', 'ssot__PartyId__c'},
-            'ssot__PartyId__c',
-            'ssot__PartyId__c'
-        ));
-        
-        return sources;
+        return new Map<String, DC_JoinConfig>();
     }
 
-    // Default mapScope implementation for backward compatibility
     public override DC_UpsertBundle mapScope(List<SObject> scope) {
-        // For multi-source steps, this should not be called directly
-        // but we provide a default implementation for interface compliance
-        DC_MultiSourceData data = new DC_MultiSourceData(scope);
-        return mapMultiSourceScope(data);
-    }
-
-    public override DC_UpsertBundle mapMultiSourceScope(DC_MultiSourceData data) {
         List<SObject> out = new List<SObject>();
 
-        // Bulk resolve Account by external id for Agent lookups
+        // Bulk resolve Account by external id for Agency relationship
         Set<String> agencyKeys = new Set<String>();
-        for (SObject src : data.mainRecords) {
+        for (SObject src : scope) {
             String k = (String)src.get('Agency_ID__c');
             if (!String.isBlank(k)) agencyKeys.add(k);
         }
@@ -79,54 +56,36 @@ public with sharing class DC_ContactAgentStep extends DC_BaseStep implements DC_
             }
         }
 
-        for (SObject src : data.mainRecords) {
+        for (SObject src : scope) {
             Contact agent = new Contact();
             
-            // Set upsert key - try multiple fields as per mapping
+            // Set upsert key using composite Agent ID logic from mappings
             String agentId = (String)src.get('Agent_ID__c');
             if (String.isBlank(agentId)) agentId = (String)src.get('ssot__Id__c');
             if (String.isBlank(agentId)) agentId = (String)src.get('ssot__PartyId__c');
             agent.put(AGENT_EXTID, agentId);
 
-            // Set RecordType for Confirmed Agent
-            agent.RecordTypeId = getContactRecordTypeId('Confirmed Agent');
+            // Set RecordType for Agent
+            agent.RecordTypeId = getContactRecordTypeId('Agent');
 
-            // Map main individual fields
-            for (DC_FieldMap m : DC_Mappings.CONTACT_AGENT_MAP) {
-                if (m.tgt == 'Agent_ID__c') continue; // Skip, already set above
+            // Apply all field mappings using the mapping-based approach
+            for (DC_FieldMap mapping : DC_Mappings.CONTACT_AGENT_MAP) {
+                if (mapping.tgt == 'Agent_ID__c') continue; // Skip, already set above
                 
-                Object value = src.get(m.src);
-                if (value != null) {
-                    agent.put(m.tgt, value);
+                if (DC_RelationshipQueryUtil.isRelationshipField(mapping.src)) {
+                    // Relationship fields will be handled by applyRelationshipDataToContact
+                    continue;
+                } else {
+                    // Direct field mapping from Individual record
+                    Object value = src.get(mapping.src);
+                    if (value != null) {
+                        agent.put(mapping.tgt, value);
+                    }
                 }
             }
 
-            // Get related contact point data
-            String partyId = (String)src.get('ssot__PartyId__c');
-            if (!String.isBlank(partyId)) {
-                // Email
-                SObject emailRec = getFirstAdditionalRecord(data, 'email', partyId);
-                if (emailRec != null) {
-                    agent.Email = (String)emailRec.get('ssot__EmailAddress__c');
-                }
-                
-                // Phone
-                SObject phoneRec = getFirstAdditionalRecord(data, 'phone', partyId);
-                if (phoneRec != null) {
-                    agent.Phone = (String)phoneRec.get('ssot__FormattedE164PhoneNumber__c');
-                    agent.Extension__c = (String)phoneRec.get('ssot__ExtensionNumber__c');
-                }
-                
-                // Address
-                SObject addressRec = getFirstAdditionalRecord(data, 'address', partyId);
-                if (addressRec != null) {
-                    agent.MailingStreet = (String)addressRec.get('ssot__AddressLine1__c');
-                    agent.MailingCity = (String)addressRec.get('ssot__CityId__c');
-                    agent.MailingState = (String)addressRec.get('ssot__StateProvinceId__c');
-                    agent.MailingCountry = (String)addressRec.get('ssot__CountryId__c');
-                    agent.MailingPostalCode = (String)addressRec.get('Zipcode__c');
-                }
-            }
+            // Apply relationship data using mappings
+            DC_RelationshipQueryUtil.applyRelationshipDataToContact(agent, src, DC_Mappings.CONTACT_AGENT_MAP);
 
             // Set Account relationship
             String agencyId = (String)src.get('Agency_ID__c');

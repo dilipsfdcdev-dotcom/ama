@@ -1,6 +1,6 @@
 public with sharing class DC_Mappings {
 
-    // ---------- EXISTING ----------
+    // ---------- EXISTING MAPPINGS (unchanged) ----------
     // ssot__Account__dlm → Account
     public static final List<DC_FieldMap> ACCOUNT_MAP = new List<DC_FieldMap>{
         new DC_FieldMap('Address_City__c','BillingCity'),
@@ -8,6 +8,7 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Zip_Code__c','BillingPostalCode'),
         new DC_FieldMap('State_Code__c','BillingState'),
         new DC_FieldMap('Address_Line1__c','BillingStreet'),
+        new DC_FieldMap('Classification_Code__c','Classification_Code__c'),
         new DC_FieldMap('CLIA__c','CLIA__c'),
         new DC_FieldMap('Code__c','Code__c'),
         new DC_FieldMap('Currency__c','Currency__c'),
@@ -28,6 +29,7 @@ public with sharing class DC_Mappings {
     // Seaware_Commission_Structure__dlm → Commission_Structure__c
     public static final List<DC_FieldMap> COMMISSION_MAP = new List<DC_FieldMap>{
         new DC_FieldMap('Commission_Africa__c','Africa__c'),
+        new DC_FieldMap('Agency_Classification_Code__c','Agency_Classification_Code__c'),
         new DC_FieldMap('Agency_Name__c','Agency_Name__c'),
         new DC_FieldMap('Agency_ID__c','AgencyID__c'),
         new DC_FieldMap('Commission_Air_Fare__c','Air_Fare__c'),
@@ -46,81 +48,93 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Commission_Land__c','Land_Program__c'),
         new DC_FieldMap('Commission_Mekong__c','Mekong__c'),
         new DC_FieldMap('Commission_Myanmar__c','Myanmar__c'),
-      //  new DC_FieldMap('Commission_Structure_Name__c','Name'),
+       //new DC_FieldMap('Commission_Structure_Name__c','Name'),
         new DC_FieldMap('Primary_Type__c','Primary_Type__c')
     };
 
-    // ---------- NEW MAPS ----------
+    // ---------- ENHANCED CONTACT MAPPINGS WITH RELATIONSHIP HANDLING ----------
 
-    // Contact (Agent) ← ssot__Individual__dlm + ContactPoint* (composite keys included)
+    // Contact (Agent) ← ssot__Individual__dlm + Contact Point Relationships
     public static final List<DC_FieldMap> CONTACT_AGENT_MAP = new List<DC_FieldMap>{
+        // Main Individual fields
         new DC_FieldMap('Agency_ID__c','AgencyID__c'),
-        // Composite Agent ID (any of these can carry the ID)
         new DC_FieldMap('Agent_ID__c','Agent_ID__c'),
         new DC_FieldMap('ssot__Id__c','Agent_ID__c'),
         new DC_FieldMap('ssot__PartyId__c','Agent_ID__c'),
-
         new DC_FieldMap('Allow_Web_Access__c','Allow_Web_Access__c'),
         new DC_FieldMap('Birthday__c','Birthdate'),
-        new DC_FieldMap('ssot__EmailAddress__c','Email'),
         new DC_FieldMap('Agent_Do_Not_Mail__c','HasOptedOutOfEmail'),
-        new DC_FieldMap('ssot__ExtensionNumber__c','Extension__c'),
         new DC_FieldMap('ssot__FirstName__c','FirstName'),
         new DC_FieldMap('IATA__c','IATA__c'),
         new DC_FieldMap('IATAN_Company_Name__c','IATAN_Company_Name__c'),
         new DC_FieldMap('IATAN_Holder_Name__c','IATAN_Holder_Name__c'),
         new DC_FieldMap('ssot__LastName__c','LastName'),
-        new DC_FieldMap('ssot__CityId__c','MailingCity'),
-        new DC_FieldMap('ssot__CountryId__c','MailingCountry'),
-        new DC_FieldMap('Zipcode__c','MailingPostalCode'),
-        new DC_FieldMap('ssot__StateProvinceId__c','MailingState'),
-        new DC_FieldMap('ssot__AddressLine1__c','MailingStreet'),
         new DC_FieldMap('ssot__MiddleName__c','MiddleName'),
         new DC_FieldMap('ssot__PersonName__c','Name'),
-        new DC_FieldMap('ssot__FormattedE164PhoneNumber__c','Phone'),
         new DC_FieldMap('Status__c','Status__c'),
         new DC_FieldMap('Sex__c','Gender__c'),
         new DC_FieldMap('Web_Login_Name__c','Web_Login_Name__c'),
         new DC_FieldMap('AmaAcademy_Graduate__c','AmaAcademy_Graduate__c'),
-        new DC_FieldMap('AmaAcademy_Course_Level__c','AmaAcademy_Course_Level__c')
+        new DC_FieldMap('AmaAcademy_Course_Level__c','AmaAcademy_Course_Level__c'),
+        
+        // Contact Point Email fields (from ssot__rel_1697761162380_end__r)
+        new DC_FieldMap('EMAIL:ssot__EmailAddress__c','Email'),
+        
+        // Contact Point Phone fields (from ssot__rel_1697761164176_end__r)
+        new DC_FieldMap('PHONE:ssot__FormattedE164PhoneNumber__c','Phone'),
+        new DC_FieldMap('PHONE:ssot__ExtensionNumber__c','Extension__c'),
+        
+        // Contact Point Address fields (from ssot__rel_1697761159567_end__r)
+        new DC_FieldMap('ADDRESS:ssot__AddressLine1__c','MailingStreet'),
+        new DC_FieldMap('ADDRESS:ssot__CityId__c','MailingCity'),
+        new DC_FieldMap('ADDRESS:ssot__StateProvinceId__c','MailingState'),
+        new DC_FieldMap('ADDRESS:ssot__CountryId__c','MailingCountry'),
+        new DC_FieldMap('ADDRESS:Zipcode__c','MailingPostalCode')
     };
 
-    // Contact (Client) ← ssot__Individual__dlm + ContactPoint* + PartyIdentification__dlm
+    // Contact (Client) ← ssot__Individual__dlm + Contact Point Relationships + PartyIdentification
     public static final List<DC_FieldMap> CONTACT_CLIENT_MAP = new List<DC_FieldMap>{
+        // Main Individual fields
         new DC_FieldMap('Birthday__c','Birthdate'),
-        // Composite Client ID
         new DC_FieldMap('Client_ID__c','Client_ID__c'),
         new DC_FieldMap('ssot__Id__c','Client_ID__c'),
         new DC_FieldMap('ssot__PartyId__c','Client_ID__c'),
-
         new DC_FieldMap('Client_Type__c','Client_Type__c'),
-        new DC_FieldMap('ssot__EmailAddress__c','Email'),
         new DC_FieldMap('ssot__FirstName__c','FirstName'),
         new DC_FieldMap('Sex__c','Gender__c'),
         new DC_FieldMap('Guest_Type__c','Guest_Type__c'),
         new DC_FieldMap('Household_ID__c','Household_ID__c'),
         new DC_FieldMap('ssot__LastName__c','LastName'),
-        new DC_FieldMap('ssot__CityId__c','MailingCity'),
-        new DC_FieldMap('ssot__CountryId__c','MailingCountry'),
-        new DC_FieldMap('Zipcode__c','MailingPostalCode'),
-        new DC_FieldMap('ssot__StateProvinceId__c','MailingState'),
-        new DC_FieldMap('ssot__AddressLine1__c','MailingStreet'),
         new DC_FieldMap('ssot__MiddleName__c','MiddleName'),
         new DC_FieldMap('ssot__PersonName__c','Name'),
-        // Passport details (PartyIdentification__dlm)
-        new DC_FieldMap('Expiration_Date__c','Passport_Expire_Date__c'),
-        new DC_FieldMap('ssot__IssuedAtLocation__c','Passport_Issue_Country__c'),
-        new DC_FieldMap('Issued_Date__c','Passport_Issue_Date__c'),
-        new DC_FieldMap('ssot__IdentificationNumber__c','Passport_Number__c'),
-        // Phone
-        new DC_FieldMap('ssot__FormattedE164PhoneNumber__c','Phone'),
         new DC_FieldMap('Status__c','Status__c'),
         new DC_FieldMap('ssot__TitleName__c','Title'),
         new DC_FieldMap('Send_Promotional_Email__c','Clients_Communication_Via_Email__c'),
         new DC_FieldMap('Send_Promotional_Mail__c','Clients_Communication_Via_Mail__c'),
         new DC_FieldMap('Client_Do_Not_Mail__c','Do_Not_Contact__c'),
-        new DC_FieldMap('Client_Do_Not_Email__c','HasOptedOutOfEmail')
+        new DC_FieldMap('Client_Do_Not_Email__c','HasOptedOutOfEmail'),
+        
+        // Contact Point Email fields (from ssot__rel_1697761162380_end__r)
+        new DC_FieldMap('EMAIL:ssot__EmailAddress__c','Email'),
+        
+        // Contact Point Phone fields (from ssot__rel_1697761164176_end__r)
+        new DC_FieldMap('PHONE:ssot__FormattedE164PhoneNumber__c','Phone'),
+        
+        // Contact Point Address fields (from ssot__rel_1697761159567_end__r)
+        new DC_FieldMap('ADDRESS:ssot__AddressLine1__c','MailingStreet'),
+        new DC_FieldMap('ADDRESS:ssot__CityId__c','MailingCity'),
+        new DC_FieldMap('ADDRESS:ssot__StateProvinceId__c','MailingState'),
+        new DC_FieldMap('ADDRESS:ssot__CountryId__c','MailingCountry'),
+        new DC_FieldMap('ADDRESS:Zipcode__c','MailingPostalCode'),
+        
+        // PartyIdentification fields (from ssot__rel_1697761176956_end__r)
+        new DC_FieldMap('PASSPORT:ssot__IdentificationNumber__c','Passport_Number__c'),
+        new DC_FieldMap('PASSPORT:ssot__IssuedAtLocation__c','Passport_Issue_Country__c'),
+        new DC_FieldMap('PASSPORT:Issued_Date__c','Passport_Issue_Date__c'),
+        new DC_FieldMap('PASSPORT:Expiration_Date__c','Passport_Expire_Date__c')
     };
+
+    // ---------- OTHER OBJECT MAPPINGS (unchanged) ----------
 
     // Ship__c ← Seaware_Ship__dlm
     public static final List<DC_FieldMap> SHIP_MAP = new List<DC_FieldMap>{
@@ -152,7 +166,6 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Package_ID__c','Package_ID__c'),
         new DC_FieldMap('Sail_ID__c','SailID__c'),
         new DC_FieldMap('Sailing_Code__c','Sailing_Code__c'),
-        // Provided mapping says Sail_ID__c → Ship__c (keeping as given)
         new DC_FieldMap('Sail_ID__c','Ship__c')
     };
 
@@ -160,7 +173,7 @@ public with sharing class DC_Mappings {
     public static final List<DC_FieldMap> OPPORTUNITY_MAP = new List<DC_FieldMap>{
         new DC_FieldMap('Group_Coordinator__c','Group_Coordinator__c'),
         new DC_FieldMap('Group_Initialization_Date__c','Group_Create_Date__c'),
-        new DC_FieldMap('Group_ID__c','Group_Id__c'),
+        //new DC_FieldMap('Group_ID__c','Group_Id__c'),
         new DC_FieldMap('Group_Type__c','Group_Type__c'),
         new DC_FieldMap('Group_Type_Code__c','Group_Type_Code__c'),
         new DC_FieldMap('Comments__c','Group_Type_Name__c'),
@@ -181,9 +194,9 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Booking_Date__c','Booking_Date__c'),
         new DC_FieldMap('Res_ID__c','Booking_Number__c'),
         new DC_FieldMap('Res_Status__c','Booking_Status__c'),
-        new DC_FieldMap('Package_Type__c','Booking_Type__c'),
+       // new DC_FieldMap('Package_Type__c','Booking_Type__c'),
         new DC_FieldMap('Group_ID__c','Group_Id__c'),
-        new DC_FieldMap('ssot__Id__c','Group_Id__c'), // if present
+       // new DC_FieldMap('ssot__Id__c','Group_Id__c'),
         new DC_FieldMap('Gross_Commission__c','Commission__c'),
         new DC_FieldMap('Cruise_Revenue_Net__c','Net_Cruise_Only__c'),
         new DC_FieldMap('NBR_Of_FIT_PAX__c','Number_of_Passengers_FIT__c'),
@@ -210,8 +223,7 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Guest_ID__c','Guest_ID__c'),
         new DC_FieldMap('Is_Check_In_Complete__c','IsCheck_in_Complete__c'),
         new DC_FieldMap('Name__c','Name'),
-        new DC_FieldMap('Sailing_Code__c','Sailing_Code__c'),
-
+       // new DC_FieldMap('Sailing_Code__c','Sailing_Code__c'),
         new DC_FieldMap('Primary_Agency_ID__c','xBooking_AgencyID__c'),
         new DC_FieldMap('Agent_Email__c','xBooking_AgentEmail__c'),
         new DC_FieldMap('Agent_ID__c','xBooking_AgentID__c'),
@@ -222,11 +234,9 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Guest_Type__c','xBooking_GuestType__c'),
         new DC_FieldMap('Cruise_Description__c','xBooking_ItineraryName__c'),
         new DC_FieldMap('Package_Type__c','xBooking_PackageType__c'),
-
         new DC_FieldMap('Client_Type__c','xClient_ClientType__c'),
         new DC_FieldMap('Client_Email__c','xClient_EmailAddress__c'),
         new DC_FieldMap('Client_Guest_Type__c','xClient_GuestType__c'),
-
         new DC_FieldMap('Client_Active_in_Booking__c','Client_Active_in_Booking__c'),
         new DC_FieldMap('Cabin_Number__c','Cabin__c'),
         new DC_FieldMap('Price_Category__c','Booked_Category__c'),
@@ -236,14 +246,25 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('eDocs_Update_Date__c','Guest_eDocs_Update_Date__c')
     };
 
-    // (Optional) If your loader supports declaring preferred upsert keys per SObject, keep them here.
+    // ---------- RELATIONSHIP CONFIGURATION ----------
+
+    // Relationship mapping configuration for Data Cloud subqueries
+    public static final Map<String, String> RELATIONSHIP_MAPPINGS = new Map<String, String>{
+        'EMAIL' => 'ssot__rel_1697761162380_end__r',
+        'PHONE' => 'ssot__rel_1697761164176_end__r',
+        'ADDRESS' => 'ssot__rel_1697761159567_end__r',
+        'PASSPORT' => 'ssot__rel_1697761176956_end__r'
+    };
+
+    // External ID field mappings
     public static final Map<String, String> UPSERT_KEYS_BY_SOBJECT = new Map<String, String>{
-        'Contact_Agent__virtual' => 'Agent_ID__c',   // virtual grouping; your orchestrator can choose CONTACT_AGENT_MAP + key
+        'Contact_Agent__virtual' => 'Agent_ID__c',
         'Contact_Client__virtual' => 'Client_ID__c',
         'Sailing__c' => 'Sailing_Code__c',
         'Opportunity' => 'Group_Id__c',
         'Booking__c' => 'Booking_Number__c',
         'Reservation__c' => 'Guest_ID__c',
-        'Ship__c' => 'Ship_ID__c'
+        'Ship__c' => 'Ship_Code__c',
+        'Commission_Structure__c' => 'AgencyID__c'
     };
 }
