@@ -1,4 +1,4 @@
-public with sharing class DC_AccountStep implements DC_IStep, DC_IWhere {
+public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWhere {
 
     // Source + key
     private static final String SRC_OBJECT   = 'ssot__Account__dlm';
@@ -10,15 +10,14 @@ public with sharing class DC_AccountStep implements DC_IStep, DC_IWhere {
     // Treat these as lookups we try to resolve by Account external id
     private static final Set<String> ACCOUNT_LOOKUPS = new Set<String>{ 'Host_Account__c' };
 
-    public String sourceObjectApi()    { return SRC_OBJECT; }
-    public String orderBySourceField() { return ORDER_BY_SRC; }
+    public override String sourceObjectApi()    { return SRC_OBJECT; }
+    public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-       // return 'ssot__DataSourceObjectId__c = \'Seaware_Account_E1C509FE\' AND ssot__LastModifiedDate__c = TODAY';
-       return 'ssot__DataSourceObjectId__c = \'Seaware_Account_E1C509FE\' AND ssot__LastModifiedDate__c != null';
+       return 'ssot__DataSourceObjectId__c = \'Seaware_Account_E1C509FE\' AND ssot__LastModifiedDate__c = TODAY';
     }
 
-    public Set<String> sourceFields() {
+    public override Set<String> sourceFields() {
         Set<String> f = new Set<String>();
         for (DC_FieldMap m : DC_Mappings.ACCOUNT_MAP) f.add(m.src);
         f.add(ORDER_BY_SRC);
@@ -26,7 +25,7 @@ public with sharing class DC_AccountStep implements DC_IStep, DC_IWhere {
         return f;
     }
 
-    public DC_UpsertBundle mapScope(List<SObject> scope) {
+    public override DC_UpsertBundle mapScope(List<SObject> scope) {
         List<SObject> out = new List<SObject>();
 
         // Bulk resolve Host_Account__c by Account external id
@@ -67,7 +66,7 @@ public with sharing class DC_AccountStep implements DC_IStep, DC_IWhere {
         return new DC_UpsertBundle(out, ACCOUNT_EXTID);
     }
 
-    public void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
        
     }
 }

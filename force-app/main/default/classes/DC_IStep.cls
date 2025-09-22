@@ -13,4 +13,12 @@ public interface DC_IStep {
 
     // Optional post-upsert hook
     void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results);
+
+    // NEW: For multi-source steps, return additional source objects and their join conditions
+    // Default implementation returns empty map for single-source steps
+    Map<String, DC_JoinConfig> getAdditionalSources();
+    
+    // NEW: For multi-source steps, use enriched data instead of simple scope
+    // Default implementation calls mapScope() for backward compatibility
+    DC_UpsertBundle mapMultiSourceScope(DC_MultiSourceData data);
 }
