@@ -1,0 +1,35 @@
+public with sharing class DC_CommissionStep implements DC_IStep {
+
+    private static final String SRC_OBJECT   = 'Seaware_Commission_Structure__dlm';
+    private static final String ORDER_BY_SRC = 'Agency_ID__c';
+    private static final String COMMISSION_EXTID = 'AgencyID__c';
+    private static final String TGT_OBJECT   = 'Commission_Structure__c';
+
+    public String sourceObjectApi()    { return SRC_OBJECT; }
+    public String orderBySourceField() { return ORDER_BY_SRC; }
+
+    public Set<String> sourceFields() {
+        Set<String> f = new Set<String>();
+        for (DC_FieldMap m : DC_Mappings.COMMISSION_MAP) f.add(m.src);
+        f.add(ORDER_BY_SRC); // cursor + ext-id source
+        return f;
+    }
+
+    public DC_UpsertBundle mapScope(List<SObject> scope) {
+        Schema.SObjectType t = Schema.getGlobalDescribe().get(TGT_OBJECT);
+        List<SObject> out = new List<SObject>();
+        for (SObject src : scope) {
+            SObject rec = t.newSObject();
+            rec.put(COMMISSION_EXTID, (String)src.get(ORDER_BY_SRC));
+            for (DC_FieldMap m : DC_Mappings.COMMISSION_MAP) {
+                rec.put(m.tgt, src.get(m.src));
+            }
+            out.add(rec);
+        }
+        return new DC_UpsertBundle(out, COMMISSION_EXTID);
+    }
+
+    public void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+        // no-op
+    }
+}
