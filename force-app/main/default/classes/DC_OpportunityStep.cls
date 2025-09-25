@@ -3,12 +3,14 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
     private static final String SRC_OBJECT = 'ssot__Opportunity__dlm';
     private static final String ORDER_BY_SRC = 'Group_Id__c';
     private static final String OPPORTUNITY_EXTID = 'Group_Id__c';
+    private static final String STEP_NAME = 'Opportunity';
 
     public override String sourceObjectApi() { return SRC_OBJECT; }
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-        return 'ssot__DataSourceObjectId__c = \'Seaware_Opportunity_E1C50A03\' AND ssot__LastModifiedDate__c = TODAY';
+        String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
+        return 'ssot__DataSourceObjectId__c = \'Seaware_Opportunity_E1C50A03\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {

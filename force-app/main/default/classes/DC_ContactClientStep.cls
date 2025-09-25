@@ -3,12 +3,14 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     private static final String SRC_OBJECT = 'ssot__Individual__dlm';
     private static final String ORDER_BY_SRC = 'ssot__Id__c';
     private static final String CLIENT_EXTID = 'Client_ID__c';
+    private static final String STEP_NAME = 'Client';
 
     public override String sourceObjectApi() { return SRC_OBJECT; }
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-        return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ssot__LastModifiedDate__c = TODAY';
+        String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
+        return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {

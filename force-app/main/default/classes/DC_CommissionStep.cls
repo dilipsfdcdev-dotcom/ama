@@ -4,12 +4,13 @@ public with sharing class DC_CommissionStep extends DC_BaseStep implements DC_IW
     private static final String ORDER_BY_SRC = 'Agency_ID__c';
     private static final String COMMISSION_EXTID = 'AgencyID__c';
     private static final String TGT_OBJECT   = 'Commission_Structure__c';
+    private static final String STEP_NAME = 'Commission';
 
     public override String sourceObjectApi()    { return SRC_OBJECT; }
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-       return 'Last_Modified_Date__c = TODAY';
+        return DC_DateUtil.getDateFilterClauseForSeaware(STEP_NAME, 'Last_Modified_Date__c');
     }
 
     public override Set<String> sourceFields() {

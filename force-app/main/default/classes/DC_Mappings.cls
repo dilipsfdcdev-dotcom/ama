@@ -8,7 +8,7 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Zip_Code__c','BillingPostalCode'),
         new DC_FieldMap('State_Code__c','BillingState'),
         new DC_FieldMap('Address_Line1__c','BillingStreet'),
-        new DC_FieldMap('Classification_Code__c','Classification_Code__c'),
+       // new DC_FieldMap('Classification_Code__c','Classification_Code__c'),
         new DC_FieldMap('CLIA__c','CLIA__c'),
         new DC_FieldMap('Code__c','Code__c'),
         new DC_FieldMap('Currency__c','Currency__c'),

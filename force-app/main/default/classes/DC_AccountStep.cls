@@ -6,6 +6,7 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
 
     // Target ext-id (change if your org uses a different one)
     private static final String ACCOUNT_EXTID = 'SEAWARE_Agency_ID__c';
+    private static final String STEP_NAME = 'Account';
 
     // Treat these as lookups we try to resolve by Account external id
     private static final Set<String> ACCOUNT_LOOKUPS = new Set<String>{ 'Host_Account__c' };
@@ -14,7 +15,8 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-       return 'ssot__DataSourceObjectId__c = \'Seaware_Account_E1C509FE\' AND ssot__LastModifiedDate__c = TODAY';
+        String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
+        return 'ssot__DataSourceObjectId__c = \'Seaware_Account_E1C509FE\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {

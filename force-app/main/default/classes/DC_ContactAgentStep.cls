@@ -3,12 +3,14 @@ public with sharing class DC_ContactAgentStep extends DC_BaseStep implements DC_
     private static final String SRC_OBJECT = 'ssot__Individual__dlm';
     private static final String ORDER_BY_SRC = 'ssot__Id__c';
     private static final String AGENT_EXTID = 'Agent_ID__c';
+    private static final String STEP_NAME = 'Agent';
 
     public override String sourceObjectApi() { return SRC_OBJECT; }
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-        return 'ssot__DataSourceObjectId__c = \'Seaware_Agent_E1C50A02\' AND ssot__LastModifiedDate__c = TODAY';
+        String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
+        return 'ssot__DataSourceObjectId__c = \'Seaware_Agent_E1C50A02\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {
