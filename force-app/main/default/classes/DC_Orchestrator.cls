@@ -72,13 +72,17 @@ public with sharing class DC_Orchestrator {
             // Get sync days from metadata
             Integer syncDays = DC_DateUtil.getSyncDaysForStep(stepName);
             
-            // Create smaller chunks to stay within OFFSET limits
-            // For large sync periods, start with smaller chunks
+            // For Data Cloud objects, we need to process data in smaller chunks
+            // to stay within the OFFSET limit of 2000
             if (syncDays > 7) {
-                // Use 7-day chunks for large sync periods
-                return endDate.addDays(-6); // 7-day chunk (including end date)
+                // For large sync periods, start with the oldest data first
+                // Calculate the full date range first
+                Date fullRangeStartDate = endDate.addDays(-(syncDays - 1));
+                
+                // Start with the first 7-day chunk from the beginning of the range
+                return fullRangeStartDate;
             } else {
-                // Use the full sync period if it's small
+                // Use the full sync period if it's small (7 days or less)
                 return endDate.addDays(-(syncDays - 1));
             }
         }

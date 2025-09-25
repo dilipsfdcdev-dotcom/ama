@@ -15,7 +15,7 @@ private class DC_ContactClientStep_Test {
             LastName = 'Client1',
             Email = 'existing1@test.com',
             Phone = '+1-555-111-0001',
-            Client_ID__c = 'EXISTING_CLIENT_001'
+            Client_ID__c = '123345'
         ));
         
         // Contact 2: Has Client_ID, for scenario testing
@@ -24,7 +24,7 @@ private class DC_ContactClientStep_Test {
             LastName = 'Client2',
             Email = 'existing2@test.com',
             Phone = '+1-555-111-0002',
-            Client_ID__c = 'EXISTING_CLIENT_002'
+            Client_ID__c = '54321'
         ));
         
         // Contact 3: No Client_ID, for scenario testing
@@ -99,7 +99,7 @@ private class DC_ContactClientStep_Test {
                 'ssot__PartyId__c' => 'PARTY_NEW_001',
                 'ssot__FirstName__c' => 'John',
                 'ssot__LastName__c' => 'New',
-                'Client_ID__c' => 'NEW_CLIENT_001',
+                'Client_ID__c' => '55555',
                 'ssot__LastModifiedDate__c' => DateTime.now()
             }
         });
@@ -112,7 +112,7 @@ private class DC_ContactClientStep_Test {
         System.assertEquals('Client_ID__c', bundle.externalIdField);
         
         Contact resultContact = (Contact) bundle.records[0];
-        System.assertEquals('NEW_CLIENT_001', resultContact.Client_ID__c);
+        System.assertEquals('55555', resultContact.Client_ID__c);
         System.assertEquals('John', resultContact.FirstName);
         System.assertEquals('New', resultContact.LastName);
     }
@@ -144,7 +144,7 @@ private class DC_ContactClientStep_Test {
                 'ssot__PartyId__c' => 'PARTY_MULTI_001',
                 'ssot__FirstName__c' => 'Multi',
                 'ssot__LastName__c' => 'Client1',
-                'Client_ID__c' => 'MULTI_CLIENT_001',
+                'Client_ID__c' => '123456',
                 'ssot__LastModifiedDate__c' => DateTime.now().addMinutes(-10)
             },
             new Map<String, Object>{
@@ -152,7 +152,7 @@ private class DC_ContactClientStep_Test {
                 'ssot__PartyId__c' => 'PARTY_MULTI_001', // Same party
                 'ssot__FirstName__c' => 'Multi',
                 'ssot__LastName__c' => 'Client2',
-                'Client_ID__c' => 'MULTI_CLIENT_002',
+                'Client_ID__c' => '123456',
                 'ssot__LastModifiedDate__c' => DateTime.now().addMinutes(-5)
             },
             new Map<String, Object>{
@@ -160,7 +160,7 @@ private class DC_ContactClientStep_Test {
                 'ssot__PartyId__c' => 'PARTY_MULTI_001', // Same party
                 'ssot__FirstName__c' => 'Multi',
                 'ssot__LastName__c' => 'Client3',
-                'Client_ID__c' => 'MULTI_CLIENT_003',
+                'Client_ID__c' => '1234567',
                 'ssot__LastModifiedDate__c' => DateTime.now()
             }
         });
@@ -178,9 +178,9 @@ private class DC_ContactClientStep_Test {
             clientIds.add(contact.Client_ID__c);
         }
         
-        System.assert(clientIds.contains('MULTI_CLIENT_001'));
-        System.assert(clientIds.contains('MULTI_CLIENT_002'));
-        System.assert(clientIds.contains('MULTI_CLIENT_003'));
+        System.assert(clientIds.contains('12345'));
+        System.assert(clientIds.contains('123456'));
+        System.assert(clientIds.contains('1234567'));
     }
     
     // SCENARIO 4: Multiple Salesforce Contacts, no Seaware clients
@@ -203,7 +203,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_MATCH_001',
                     'ssot__FirstName__c' => 'Updated',
                     'ssot__LastName__c' => 'Name',
-                    'Client_ID__c' => 'EXISTING_CLIENT_001', // Matches existing contact
+                    'Client_ID__c' => '123345', // Matches existing contact
                     'ssot__LastModifiedDate__c' => DateTime.now()
                 }
             },
@@ -219,7 +219,7 @@ private class DC_ContactClientStep_Test {
         System.assertEquals(1, bundle.records.size(), 'Should update existing contact');
         
         Contact resultContact = (Contact) bundle.records[0];
-        System.assertEquals('EXISTING_CLIENT_001', resultContact.Client_ID__c);
+        System.assertEquals('123345', resultContact.Client_ID__c);
         System.assertEquals('Updated', resultContact.FirstName);
         System.assertEquals('existing1@test.com', resultContact.Email);
     }
@@ -236,7 +236,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_MATCH_MULTI_001',
                     'ssot__FirstName__c' => 'Updated',
                     'ssot__LastName__c' => 'Multi1',
-                    'Client_ID__c' => 'EXISTING_CLIENT_001', // Matches existing
+                    'Client_ID__c' => '123345', // Matches existing
                     'ssot__LastModifiedDate__c' => DateTime.now().addMinutes(-10)
                 },
                 new Map<String, Object>{
@@ -244,7 +244,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_MATCH_MULTI_001', // Same party
                     'ssot__FirstName__c' => 'New',
                     'ssot__LastName__c' => 'Multi2',
-                    'Client_ID__c' => 'NEW_CLIENT_002',
+                    'Client_ID__c' => '234567',
                     'ssot__LastModifiedDate__c' => DateTime.now() // More recent
                 }
             },
@@ -265,8 +265,8 @@ private class DC_ContactClientStep_Test {
             clientIds.add(contact.Client_ID__c);
         }
         
-        System.assert(clientIds.contains('EXISTING_CLIENT_001'));
-        System.assert(clientIds.contains('NEW_CLIENT_002'));
+        System.assert(clientIds.contains('123345'));
+        System.assert(clientIds.contains('234567'));
     }
     
     // SCENARIO 7: Multiple Salesforce Contacts and 1 Seaware Client
@@ -281,7 +281,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_MATCH_MULTI_SF',
                     'ssot__FirstName__c' => 'Updated',
                     'ssot__LastName__c' => 'FromSeaware',
-                    'Client_ID__c' => 'EXISTING_CLIENT_001', // Matches one existing contact
+                    'Client_ID__c' => '123345', // Matches one existing contact
                     'ssot__LastModifiedDate__c' => DateTime.now()
                 }
             },
@@ -297,7 +297,7 @@ private class DC_ContactClientStep_Test {
         System.assertEquals(1, bundle.records.size(), 'Should update matching contact');
         
         Contact resultContact = (Contact) bundle.records[0];
-        System.assertEquals('EXISTING_CLIENT_001', resultContact.Client_ID__c);
+        System.assertEquals('123345', resultContact.Client_ID__c);
         System.assertEquals('Updated', resultContact.FirstName);
         System.assertEquals('FromSeaware', resultContact.LastName);
     }
@@ -314,7 +314,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_MATCH_8',
                     'ssot__FirstName__c' => 'Multi',
                     'ssot__LastName__c' => 'Match1',
-                    'Client_ID__c' => 'EXISTING_CLIENT_001', // Matches existing
+                    'Client_ID__c' => '123345', // Matches existing
                     'ssot__LastModifiedDate__c' => DateTime.now().addMinutes(-10)
                 },
                 new Map<String, Object>{
@@ -322,7 +322,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_MATCH_8', // Same party
                     'ssot__FirstName__c' => 'Multi',
                     'ssot__LastName__c' => 'Match2',
-                    'Client_ID__c' => 'EXISTING_CLIENT_002', // Matches another existing
+                    'Client_ID__c' => '54321', // Matches another existing
                     'ssot__LastModifiedDate__c' => DateTime.now().addMinutes(-5)
                 },
                 new Map<String, Object>{
@@ -330,7 +330,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_MATCH_8', // Same party
                     'ssot__FirstName__c' => 'New',
                     'ssot__LastName__c' => 'Client8',
-                    'Client_ID__c' => 'NEW_CLIENT_8_3',
+                    'Client_ID__c' => '67899',
                     'ssot__LastModifiedDate__c' => DateTime.now()
                 }
             },
@@ -366,7 +366,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_CONTACT_POINTS',
                     'ssot__FirstName__c' => 'Contact',
                     'ssot__LastName__c' => 'Points',
-                    'Client_ID__c' => 'CONTACT_POINT_CLIENT',
+                    'Client_ID__c' => '78990',
                     'ssot__LastModifiedDate__c' => DateTime.now()
                 }
             },
@@ -444,7 +444,7 @@ private class DC_ContactClientStep_Test {
                     'ssot__PartyId__c' => 'PARTY_QUERY_TEST',
                     'ssot__FirstName__c' => 'Query',
                     'ssot__LastName__c' => 'Test',
-                    'Client_ID__c' => 'QUERY_TEST_CLIENT',
+                    'Client_ID__c' => '67890',
                     'ssot__LastModifiedDate__c' => DateTime.now()
                 }
             },
