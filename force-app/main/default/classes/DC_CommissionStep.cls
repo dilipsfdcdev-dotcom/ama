@@ -10,7 +10,8 @@ public with sharing class DC_CommissionStep extends DC_BaseStep implements DC_IW
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-        return DC_DateUtil.getDateFilterClauseForSeaware(STEP_NAME, 'Last_Modified_Date__c');
+        // Use auto-detecting method that will use Last_Modified_Date__c for Seaware objects
+        return DC_DateUtil.getDateFilterClause(STEP_NAME);
     }
 
     public override Set<String> sourceFields() {
@@ -27,8 +28,6 @@ public with sharing class DC_CommissionStep extends DC_BaseStep implements DC_IW
             SObject rec = t.newSObject();
             rec.put(COMMISSION_EXTID, (String)src.get(ORDER_BY_SRC));
             for (DC_FieldMap m : DC_Mappings.COMMISSION_MAP) {
-                system.debug('fields m.tgt-->'+m.tgt);
-                system.debug('fields src.get(m.src)-->'+src.get(m.src));
                 rec.put(m.tgt, src.get(m.src));
             }
             out.add(rec);

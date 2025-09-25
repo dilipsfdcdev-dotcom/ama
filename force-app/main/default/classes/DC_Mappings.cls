@@ -29,7 +29,7 @@ public with sharing class DC_Mappings {
     // Seaware_Commission_Structure__dlm → Commission_Structure__c
     public static final List<DC_FieldMap> COMMISSION_MAP = new List<DC_FieldMap>{
         new DC_FieldMap('Commission_Africa__c','Africa__c'),
-        new DC_FieldMap('Agency_Classification_Code__c','Agency_Classification_Code__c'),
+        //new DC_FieldMap('Agency_Classification_Code__c','Agency_Classification_Code__c'),
         new DC_FieldMap('Agency_Name__c','Agency_Name__c'),
         new DC_FieldMap('Agency_ID__c','AgencyID__c'),
         new DC_FieldMap('Commission_Air_Fare__c','Air_Fare__c'),
@@ -57,7 +57,7 @@ public with sharing class DC_Mappings {
     // Contact (Agent) ← ssot__Individual__dlm + Contact Point Relationships
     public static final List<DC_FieldMap> CONTACT_AGENT_MAP = new List<DC_FieldMap>{
         // Main Individual fields
-        new DC_FieldMap('Agency_ID__c','AgencyID__c'),
+        new DC_FieldMap('Agency_ID__c','AccountId'),
         new DC_FieldMap('Agent_ID__c','Agent_ID__c'),
         new DC_FieldMap('ssot__Id__c','Agent_ID__c'),
         new DC_FieldMap('ssot__PartyId__c','Agent_ID__c'),
@@ -65,12 +65,12 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Birthday__c','Birthdate'),
         new DC_FieldMap('Agent_Do_Not_Mail__c','HasOptedOutOfEmail'),
         new DC_FieldMap('ssot__FirstName__c','FirstName'),
-        new DC_FieldMap('IATA__c','IATA__c'),
+        //new DC_FieldMap('IATA__c','IATA__c'),
         new DC_FieldMap('IATAN_Company_Name__c','IATAN_Company_Name__c'),
         new DC_FieldMap('IATAN_Holder_Name__c','IATAN_Holder_Name__c'),
         new DC_FieldMap('ssot__LastName__c','LastName'),
         new DC_FieldMap('ssot__MiddleName__c','MiddleName'),
-        new DC_FieldMap('ssot__PersonName__c','Name'),
+       // new DC_FieldMap('ssot__PersonName__c','Name'),
         new DC_FieldMap('Status__c','Status__c'),
         new DC_FieldMap('Sex__c','Gender__c'),
         new DC_FieldMap('Web_Login_Name__c','Web_Login_Name__c'),
@@ -106,7 +106,7 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Household_ID__c','Household_ID__c'),
         new DC_FieldMap('ssot__LastName__c','LastName'),
         new DC_FieldMap('ssot__MiddleName__c','MiddleName'),
-        new DC_FieldMap('ssot__PersonName__c','Name'),
+       // new DC_FieldMap('ssot__PersonName__c','Name'),
         new DC_FieldMap('Status__c','Status__c'),
         new DC_FieldMap('ssot__TitleName__c','Title'),
         new DC_FieldMap('Send_Promotional_Email__c','Clients_Communication_Via_Email__c'),
@@ -141,10 +141,10 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Ship_Name__c','Name'),
         new DC_FieldMap('Passengers__c','Passengers__c'),
         new DC_FieldMap('Ship_Code__c','Ship_Code__c'),
-        new DC_FieldMap('Staterooms__c','Staterooms__c')
-       // new DC_FieldMap('Ship_ID__c','Ship_ID__c'),
-       // new DC_FieldMap('Ship_Brand__c','Ship_Brand__c'),
-       // new DC_FieldMap('Ship_Registry__c','Ship_Registry__c'),
+        new DC_FieldMap('Staterooms__c','Staterooms__c'),
+       new DC_FieldMap('Ship_ID__c','Ship_ID__c'),
+       new DC_FieldMap('Ship_Brand__c','Ship_Brand__c'),
+       new DC_FieldMap('Ship_Registry__c','Ship_Registry__c')
         //new DC_FieldMap('Last_Modified_Date__c','Last_Modified_Date__c')
     };
 
@@ -174,13 +174,13 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Group_Coordinator__c','Group_Coordinator__c'),
         new DC_FieldMap('Group_Initialization_Date__c','Group_Create_Date__c'),
         //new DC_FieldMap('Group_ID__c','Group_Id__c'),
-        new DC_FieldMap('Group_Type__c','Group_Type__c'),
+       // new DC_FieldMap('Group_Type__c','Group_Type__c'),
         new DC_FieldMap('Group_Type_Code__c','Group_Type_Code__c'),
         new DC_FieldMap('Comments__c','Group_Type_Name__c'),
         new DC_FieldMap('Group_Status__c','Group_Status__c'),
         new DC_FieldMap('ssot__OpportunityName__c','Name'),
         new DC_FieldMap('Sailing__c','Sailing__c'),
-        new DC_FieldMap('SEAWARE_Agency_ID__c','SEAWARE_Agency_ID__c'),
+        //new DC_FieldMap('SEAWARE_Agency_ID__c','SEAWARE_Agency_ID__c'),
         new DC_FieldMap('ssot__OpportunityStageId__c','StageName'),
         new DC_FieldMap('x120_Day_Release_Date__c','X120_Day_Release_Date__c'),
         new DC_FieldMap('x180_Day_Release_Date__c','X180_Day_Release_Date__c'),
@@ -218,8 +218,8 @@ public with sharing class DC_Mappings {
     public static final List<DC_FieldMap> RESERVATION_MAP = new List<DC_FieldMap>{
         new DC_FieldMap('TaDocs_Update_Date__c','TA_eDocs_Update_Date__c'),
         new DC_FieldMap('TaDocs_Ready_Date__c','TA_eDoc_Ready_Date__c'),
-        new DC_FieldMap('SF_Booking_ID__c','BookingID__c'),
-        new DC_FieldMap('Client_Name_ID__c','Client_NameID__c'),
+        new DC_FieldMap('Booking_ID__c','BookingID__c'),
+        new DC_FieldMap('Client_ID__c ','Client_NameID__c'),
         new DC_FieldMap('Guest_ID__c','Guest_ID__c'),
         new DC_FieldMap('Is_Check_In_Complete__c','IsCheck_in_Complete__c'),
         new DC_FieldMap('Name__c','Name'),
@@ -264,7 +264,7 @@ public with sharing class DC_Mappings {
         'Opportunity' => 'Group_Id__c',
         'Booking__c' => 'Booking_Number__c',
         'Reservation__c' => 'Guest_ID__c',
-        'Ship__c' => 'Ship_Code__c',
+        'Ship__c' => 'Ship_ID__c',
         'Commission_Structure__c' => 'AgencyID__c'
     };
 }

@@ -21,6 +21,7 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
         f.add(ORDER_BY_SRC); // cursor + ext-id source
         f.add('Sailing__c'); // for Sailing lookup
         f.add('Agent_ID__c'); // for Agent lookup
+        f.add('SEAWARE_Agency_ID__c');
         return f;
     }
 

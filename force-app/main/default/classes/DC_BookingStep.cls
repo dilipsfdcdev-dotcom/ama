@@ -10,7 +10,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-       return DC_DateUtil.getDateFilterClauseForSeaware(STEP_NAME, 'Last_Modified_Date__c');
+       return DC_DateUtil.getDateFilterClause(STEP_NAME);
     }
 
     public override Set<String> sourceFields() {
@@ -74,6 +74,23 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
                 WHERE Ship_Code__c IN :shipKeys
             ]) {
                 shipByExt.put(s.Ship_Code__c, s.Id);
+            }
+        }
+
+        // FIX: Bulk resolve Sailing by external id (using Sailing_Code__c)
+        Set<String> sailingKeys = new Set<String>();
+        for (SObject src : scope) {
+            String k = (String)src.get('Sailing_ID__c');
+            if (!String.isBlank(k)) sailingKeys.add(k);
+        }
+        Map<String, Id> sailingByExt = new Map<String, Id>();
+        if (!sailingKeys.isEmpty()) {
+            for (Sailing__c s : [
+                SELECT Id, Sailing_Code__c
+                FROM Sailing__c
+                WHERE Sailing_Code__c IN :sailingKeys
+            ]) {
+                sailingByExt.put(s.Sailing_Code__c, s.Id);
             }
         }
 
@@ -143,6 +160,15 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
                         Id shipId = shipByExt.get(shipKey);
                         if (shipId != null) {
                             booking.put(m.tgt, shipId);
+                        }
+                    }
+                } else if (m.tgt == 'Sailing_Name__c') {
+                    // FIX: Handle Sailing lookup using Sailing_ID__c source field
+                    String sailingKey = (String)src.get('Sailing_ID__c');
+                    if (!String.isBlank(sailingKey)) {
+                        Id sailingId = sailingByExt.get(sailingKey);
+                        if (sailingId != null) {
+                            booking.put(m.tgt, sailingId);
                         }
                     }
                 } else if (m.tgt == 'Primary_Passenger__c') {

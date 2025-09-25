@@ -4,20 +4,41 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
     private final Integer index;
     private final String lastKey;
     private final Integer pageSize;
+    private final Integer offsetValue;
+    private final Date chunkStartDate;  // New: for date-based chunking
+    private final Date chunkEndDate;    // New: for date-based chunking
 
     public static final Integer DEFAULT_PAGE_SIZE = 200;
+    public static final Integer MAX_DATA_CLOUD_OFFSET = 2000;
 
+    // Constructor for cursor-based pagination (backward compatibility)
     public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize) {
+        this(stepNames, index, lastKey, pageSize, 0, null, null);
+    }
+
+    // Constructor with offset support
+    public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize, Integer offsetValue) {
+        this(stepNames, index, lastKey, pageSize, offsetValue, null, null);
+    }
+
+    // Full constructor with date chunking support
+    public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize, 
+                        Integer offsetValue, Date chunkStartDate, Date chunkEndDate) {
         this.stepNames = stepNames;
-        this.index     = index;
-        this.lastKey   = lastKey;
-        this.pageSize  = (pageSize != null && pageSize > 0) ? pageSize :
+        this.index = index;
+        this.lastKey = lastKey;
+        this.pageSize = (pageSize != null && pageSize > 0) ? pageSize :
                          (DC_Debug.ENABLE && DC_Debug.MAX_ROWS > 0 ? DC_Debug.MAX_ROWS : DEFAULT_PAGE_SIZE);
+        this.offsetValue = offsetValue != null ? offsetValue : 0;
+        this.chunkStartDate = chunkStartDate;
+        this.chunkEndDate = chunkEndDate;
     }
 
     public void execute(QueueableContext qc) {
         System.debug(LoggingLevel.WARN, '=== DC_StepRunner START ===');
-        System.debug(LoggingLevel.WARN, 'Step Index: ' + index + ', StepNames: ' + stepNames + ', lastKey: ' + lastKey);
+        System.debug(LoggingLevel.WARN, 'Step Index: ' + index + ', StepNames: ' + stepNames + 
+                    ', lastKey: ' + lastKey + ', offset: ' + offsetValue + 
+                    ', chunkStart: ' + chunkStartDate + ', chunkEnd: ' + chunkEndDate);
 
         if (index == null || index >= stepNames.size()) {
             System.debug(LoggingLevel.WARN, 'No more steps to execute. Exiting.');
@@ -45,24 +66,48 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
     private void processSingleSourceStep(DC_IStep step, String stepName) {
         Set<String> srcFields = step.sourceFields();
         String selectList = String.join(new List<String>(srcFields), ',');
-        String srcObject  = step.sourceObjectApi();
+        String srcObject = step.sourceObjectApi();
         String orderField = step.orderBySourceField();
 
         String soql = 'SELECT ' + selectList + ' FROM ' + srcObject;
 
         List<String> predicates = new List<String>();
+        
+        // Determine if this is a Data Cloud object
+        Boolean isDataCloudObject = srcObject.contains('__dlm') || srcObject.startsWith('ssot__');
+        
         if (step instanceof DC_IWhere) {
             String wc = ((DC_IWhere)step).whereClause();
-            if (!String.isBlank(wc)) predicates.add(wc);
+            if (!String.isBlank(wc)) {
+                if (isDataCloudObject && (chunkStartDate != null || chunkEndDate != null)) {
+                    // Replace date filter with chunk-specific date filter
+                    wc = replaceDateFilterWithChunk(wc, chunkStartDate, chunkEndDate, stepName);
+                }
+                predicates.add(wc);
+            }
         }
-        if (lastKey != null) {
-            predicates.add(orderField + ' > :lastKey');
+        
+        if (isDataCloudObject) {
+            // For Data Cloud objects, use OFFSET-based pagination with chunking
+            if (!predicates.isEmpty()) {
+                soql += ' WHERE ' + String.join(predicates, ' AND ');
+            }
+            soql += ' ORDER BY ' + orderField + ' ASC';
+            soql += ' LIMIT ' + pageSize;
+            if (offsetValue > 0) {
+                soql += ' OFFSET ' + offsetValue;
+            }
+        } else {
+            // For regular Salesforce objects, use cursor-based pagination
+            if (!String.isBlank(lastKey)) {
+                predicates.add(orderField + ' > \'' + String.escapeSingleQuotes(lastKey) + '\'');
+            }
+            if (!predicates.isEmpty()) {
+                soql += ' WHERE ' + String.join(predicates, ' AND ');
+            }
+            soql += ' ORDER BY ' + orderField + ' ASC';
+            soql += ' LIMIT ' + pageSize;
         }
-        if (!predicates.isEmpty()) {
-            soql += ' WHERE ' + String.join(predicates, ' AND ');
-        }
-        soql += ' ORDER BY ' + orderField + ' ASC';
-        soql += ' LIMIT ' + pageSize;
 
         System.debug(LoggingLevel.WARN, 'SOQL to execute: ' + soql);
 
@@ -70,37 +115,61 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         System.debug(LoggingLevel.WARN, 'Fetched rows: ' + page.size());
 
         if (page.isEmpty()) {
-            System.debug(LoggingLevel.WARN, 'No rows found for step: ' + stepName + '. Moving to next step.');
-            enqueueNextStep();
+            if (isDataCloudObject && chunkEndDate != null && chunkEndDate < Date.today()) {
+                // Move to next date chunk
+                processNextDateChunk(step, stepName);
+            } else {
+                System.debug(LoggingLevel.WARN, 'No rows found for step: ' + stepName + '. Moving to next step.');
+                enqueueNextStep();
+            }
             return;
         }
 
         DC_UpsertBundle bundle = step.mapScope(page);
-        processUpsertAndContinue(step, stepName, page, bundle);
+        processUpsertAndContinue(step, stepName, page, bundle, isDataCloudObject);
     }
 
     private void processMultiSourceStep(DC_IStep step, String stepName) {
-        // Get main source data first
+        // Similar logic to processSingleSourceStep but for multi-source
         Set<String> srcFields = step.sourceFields();
         String selectList = String.join(new List<String>(srcFields), ',');
-        String srcObject  = step.sourceObjectApi();
+        String srcObject = step.sourceObjectApi();
         String orderField = step.orderBySourceField();
 
         String soql = 'SELECT ' + selectList + ' FROM ' + srcObject;
 
         List<String> predicates = new List<String>();
+        Boolean isDataCloudObject = srcObject.contains('__dlm') || srcObject.startsWith('ssot__');
+        
         if (step instanceof DC_IWhere) {
             String wc = ((DC_IWhere)step).whereClause();
-            if (!String.isBlank(wc)) predicates.add(wc);
+            if (!String.isBlank(wc)) {
+                if (isDataCloudObject && (chunkStartDate != null || chunkEndDate != null)) {
+                    wc = replaceDateFilterWithChunk(wc, chunkStartDate, chunkEndDate, stepName);
+                }
+                predicates.add(wc);
+            }
         }
-        if (lastKey != null) {
-            predicates.add(orderField + ' > :lastKey');
+        
+        if (isDataCloudObject) {
+            if (!predicates.isEmpty()) {
+                soql += ' WHERE ' + String.join(predicates, ' AND ');
+            }
+            soql += ' ORDER BY ' + orderField + ' ASC';
+            soql += ' LIMIT ' + pageSize;
+            if (offsetValue > 0) {
+                soql += ' OFFSET ' + offsetValue;
+            }
+        } else {
+            if (!String.isBlank(lastKey)) {
+                predicates.add(orderField + ' > \'' + String.escapeSingleQuotes(lastKey) + '\'');
+            }
+            if (!predicates.isEmpty()) {
+                soql += ' WHERE ' + String.join(predicates, ' AND ');
+            }
+            soql += ' ORDER BY ' + orderField + ' ASC';
+            soql += ' LIMIT ' + pageSize;
         }
-        if (!predicates.isEmpty()) {
-            soql += ' WHERE ' + String.join(predicates, ' AND ');
-        }
-        soql += ' ORDER BY ' + orderField + ' ASC';
-        soql += ' LIMIT ' + pageSize;
 
         System.debug(LoggingLevel.WARN, 'Main SOQL to execute: ' + soql);
 
@@ -108,27 +177,73 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         System.debug(LoggingLevel.WARN, 'Fetched main rows: ' + mainPage.size());
 
         if (mainPage.isEmpty()) {
-            System.debug(LoggingLevel.WARN, 'No rows found for step: ' + stepName + '. Moving to next step.');
-            enqueueNextStep();
+            if (isDataCloudObject && chunkEndDate != null && chunkEndDate < Date.today()) {
+                processNextDateChunk(step, stepName);
+            } else {
+                System.debug(LoggingLevel.WARN, 'No rows found for step: ' + stepName + '. Moving to next step.');
+                enqueueNextStep();
+            }
             return;
         }
 
-        // Create multi-source data container
         DC_MultiSourceData multiData = new DC_MultiSourceData(mainPage);
 
-        // Fetch additional source data
         Map<String, DC_JoinConfig> additionalSources = step.getAdditionalSources();
         for (String sourceAlias : additionalSources.keySet()) {
             fetchAdditionalSourceData(multiData, sourceAlias, additionalSources.get(sourceAlias), mainPage);
         }
 
-        // Use multi-source mapping
         DC_UpsertBundle bundle = step.mapMultiSourceScope(multiData);
-        processUpsertAndContinue(step, stepName, mainPage, bundle);
+        processUpsertAndContinue(step, stepName, mainPage, bundle, isDataCloudObject);
+    }
+
+    private String replaceDateFilterWithChunk(String originalWhere, Date startDate, Date endDate, String stepName) {
+        // Replace date filter patterns with chunk-specific dates
+        String modifiedWhere = originalWhere;
+        
+        if (startDate != null && endDate != null) {
+            // Get the correct last modified field name for this step
+            DC_IStep step = DC_StepFactory.make(stepName);
+            String lastModifiedField = 'ssot__LastModifiedDate__c'; // default
+            if (step != null) {
+                String sourceObject = step.sourceObjectApi();
+                lastModifiedField = DC_DateUtil.getLastModifiedFieldName(sourceObject);
+            }
+            
+            // Format dates for Data Cloud SOQL DateTime literals (YYYY-MM-DDTHH:mm:ss.sss+0000)
+            DateTime startDateTime = DateTime.newInstance(startDate, Time.newInstance(0, 0, 0, 0));
+            DateTime endDateTime = DateTime.newInstance(endDate, Time.newInstance(23, 59, 59, 999));
+            
+            // Format as Data Cloud DateTime literals with milliseconds and timezone offset
+            String formattedStartDate = startDateTime.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'+0000\'');
+            String formattedEndDate = endDateTime.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'+0000\'');
+            
+            // Replace LAST_N_DAYS with specific date range using correct field name
+            String dateRangeFilter = '>= ' + formattedStartDate + ' AND ' + lastModifiedField + ' <= ' + formattedEndDate;
+            
+            modifiedWhere = modifiedWhere.replaceAll('= LAST_N_DAYS:\\d+', dateRangeFilter);
+            modifiedWhere = modifiedWhere.replaceAll('= TODAY', dateRangeFilter);
+        }
+        
+        return modifiedWhere;
+    }
+
+    private void processNextDateChunk(DC_IStep step, String stepName) {
+        // Calculate next date chunk
+        Date newStartDate = chunkEndDate.addDays(1);
+        Date proposedEndDate = newStartDate.addDays(6); // 7-day chunks
+        Date newEndDate = proposedEndDate > Date.today() ? Date.today() : proposedEndDate;
+        
+        if (newStartDate <= Date.today()) {
+            System.debug(LoggingLevel.WARN, 'Moving to next date chunk: ' + newStartDate + ' to ' + newEndDate);
+            System.enqueueJob(new DC_StepRunner(stepNames, index, null, pageSize, 0, newStartDate, newEndDate));
+        } else {
+            System.debug(LoggingLevel.WARN, 'All date chunks processed. Moving to next step.');
+            enqueueNextStep();
+        }
     }
 
     private void fetchAdditionalSourceData(DC_MultiSourceData multiData, String sourceAlias, DC_JoinConfig config, List<SObject> mainPage) {
-        // Collect all join key values from main page
         Set<String> joinKeys = new Set<String>();
         for (SObject mainRec : mainPage) {
             Object keyVal = mainRec.get(config.parentField);
@@ -142,7 +257,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             return;
         }
 
-        // Build query for additional source
         String additionalSelectList = String.join(new List<String>(config.sourceFields), ',');
         if (!config.sourceFields.contains(config.joinField)) {
             additionalSelectList += ', ' + config.joinField;
@@ -160,37 +274,74 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
 
         System.debug(LoggingLevel.WARN, 'Additional source SOQL for ' + sourceAlias + ': ' + additionalSoql);
 
-        List<SObject> additionalRecs = Database.query(additionalSoql);
-        System.debug(LoggingLevel.WARN, 'Fetched additional rows for ' + sourceAlias + ': ' + additionalRecs.size());
+        try {
+            List<SObject> additionalRecs = Database.query(additionalSoql);
+            System.debug(LoggingLevel.WARN, 'Fetched additional rows for ' + sourceAlias + ': ' + additionalRecs.size());
 
-        // Group additional records by join key
-        for (SObject addRec : additionalRecs) {
-            String keyValue = String.valueOf(addRec.get(config.joinField));
-            List<SObject> existing = multiData.getAdditionalData(sourceAlias, keyValue);
-            existing.add(addRec);
-            multiData.addAdditionalData(sourceAlias, keyValue, existing);
+            for (SObject addRec : additionalRecs) {
+                String keyValue = String.valueOf(addRec.get(config.joinField));
+                List<SObject> existing = multiData.getAdditionalData(sourceAlias, keyValue);
+                if (existing.isEmpty()) {
+                    existing = new List<SObject>();
+                }
+                existing.add(addRec);
+                multiData.addAdditionalData(sourceAlias, keyValue, existing);
+            }
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'Error fetching additional source data for ' + sourceAlias + ': ' + e.getMessage());
         }
     }
 
-    private void processUpsertAndContinue(DC_IStep step, String stepName, List<SObject> page, DC_UpsertBundle bundle) {
+    private void processUpsertAndContinue(DC_IStep step, String stepName, List<SObject> page, DC_UpsertBundle bundle, Boolean isDataCloudObject) {
         if (bundle != null && !bundle.records.isEmpty()) {
             System.debug(LoggingLevel.WARN, 'Upserting ' + bundle.records.size() + ' records for step: ' + stepName);
-            Database.UpsertResult[] results =
-                DC_DmlUtil.upsertByExtId(bundle.records, bundle.externalIdField, false);
-            DC_LogUtil.logResults(bundle, results);
-            step.afterUpsert(page, bundle, results);
+            try {
+                Database.UpsertResult[] results =
+                    DC_DmlUtil.upsertByExtId(bundle.records, bundle.externalIdField, false);
+                DC_LogUtil.logResults(bundle, results);
+                step.afterUpsert(page, bundle, results);
+            } catch (Exception e) {
+                System.debug(LoggingLevel.ERROR, 'Error during upsert for step ' + stepName + ': ' + e.getMessage());
+            }
         }
 
-        String newLastKey = null;
-        Object keyVal = page[page.size() - 1].get(step.orderBySourceField());
-        if (keyVal != null) newLastKey = String.valueOf(keyVal);
-
-        if (page.size() == pageSize && newLastKey != null) {
-            System.debug(LoggingLevel.WARN, 'Page filled up, enqueuing SAME step again with lastKey=' + newLastKey);
-            System.enqueueJob(new DC_StepRunner(stepNames, index, newLastKey, pageSize));
+        // Continue pagination if page is full
+        if (page.size() == pageSize) {
+            if (isDataCloudObject) {
+                Integer newOffset = offsetValue + pageSize;
+                
+                // Check if we're approaching the OFFSET limit
+                if (newOffset >= MAX_DATA_CLOUD_OFFSET) {
+                    System.debug(LoggingLevel.WARN, 'Approaching OFFSET limit. Moving to next date chunk.');
+                    processNextDateChunk(step, stepName);
+                } else {
+                    System.debug(LoggingLevel.WARN, 'Page filled up, enqueuing SAME step again with offset=' + newOffset);
+                    System.enqueueJob(new DC_StepRunner(stepNames, index, null, pageSize, newOffset, chunkStartDate, chunkEndDate));
+                }
+            } else {
+                // Regular Salesforce object pagination
+                String newLastKey = null;
+                if (!page.isEmpty()) {
+                    Object keyVal = page[page.size() - 1].get(step.orderBySourceField());
+                    if (keyVal != null) {
+                        newLastKey = String.valueOf(keyVal);
+                    }
+                }
+                if (!String.isBlank(newLastKey)) {
+                    System.debug(LoggingLevel.WARN, 'Page filled up, enqueuing SAME step again with lastKey=' + newLastKey);
+                    System.enqueueJob(new DC_StepRunner(stepNames, index, newLastKey, pageSize, 0, null, null));
+                } else {
+                    enqueueNextStep();
+                }
+            }
         } else {
-            System.debug(LoggingLevel.WARN, 'Step complete, moving to NEXT step.');
-            enqueueNextStep();
+            if (isDataCloudObject && chunkEndDate != null && chunkEndDate < Date.today()) {
+                // Current chunk is done, move to next chunk
+                processNextDateChunk(step, stepName);
+            } else {
+                System.debug(LoggingLevel.WARN, 'Step complete, moving to NEXT step.');
+                enqueueNextStep();
+            }
         }
     }
 

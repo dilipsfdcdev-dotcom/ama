@@ -2,7 +2,7 @@ public with sharing class DC_ShipStep extends DC_BaseStep  implements DC_IWhere 
 
     private static final String SRC_OBJECT = 'Seaware_Ship__dlm';
     private static final String ORDER_BY_SRC = 'Ship_ID__c';
-    private static final String SHIP_EXTID = 'Ship_Code__c'; // Updated to use Ship_Code as external ID
+    private static final String SHIP_EXTID = 'Ship_ID__c'; // Updated to use Ship_Code as external ID
     private static final String TGT_OBJECT = 'Ship__c';
     private static final String STEP_NAME = 'Ship';
 
@@ -19,7 +19,7 @@ public with sharing class DC_ShipStep extends DC_BaseStep  implements DC_IWhere 
             f.add(m.src);
         }
         f.add(ORDER_BY_SRC); // cursor
-        f.add('Ship_Code__c'); // ext-id source
+        f.add('Ship_ID__c'); // ext-id source
         return f;
     }
 
