@@ -222,69 +222,106 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         processUpsertAndContinue(step, stepName, mainPage, bundle, isDataCloudObject);
     }
 
-// Fixed replaceDateFilterWithChunk method for DC_StepRunner.cls
-    private String replaceDateFilterWithChunk(String originalWhere, Date startDate, Date endDate, String stepName) {
-        // Replace date filter patterns with chunk-specific dates
-        String modifiedWhere = originalWhere;
+private String replaceDateFilterWithChunk(String originalWhere, Date startDate, Date endDate, String stepName) {
+    // Replace date filter patterns with chunk-specific dates
+    String modifiedWhere = originalWhere;
+    
+    if (startDate != null && endDate != null) {
+        DC_IStep step = DC_StepFactory.make(stepName);
+        String lastModifiedField = 'ssot__LastModifiedDate__c'; // default
+        if (step != null) {
+            String sourceObject = step.sourceObjectApi();
+            lastModifiedField = DC_DateUtil.getLastModifiedFieldName(sourceObject);
+        }
         
-        if (startDate != null && endDate != null) {
-            DC_IStep step = DC_StepFactory.make(stepName);
-            String lastModifiedField = 'ssot__LastModifiedDate__c'; // default
-            if (step != null) {
-                String sourceObject = step.sourceObjectApi();
-                lastModifiedField = DC_DateUtil.getLastModifiedFieldName(sourceObject);
-            }
+        // **FIX: Use CDP from_iso8601_timestamp() function for proper timestamp handling**
+        DateTime startDateTime = DateTime.newInstance(startDate, Time.newInstance(0, 0, 0, 0));
+        DateTime endDateTime = DateTime.newInstance(endDate.addDays(1), Time.newInstance(0, 0, 0, 0)); // Exclusive end
+        String formattedStartDateTime = DC_DateUtil.formatDateTimeForCDP(startDateTime);
+        String formattedEndDateTime = DC_DateUtil.formatDateTimeForCDP(endDateTime);
+        
+        // Build the proper datetime range filter for CDP using from_iso8601_timestamp()
+        String dateRangeFilter = lastModifiedField + ' >= from_iso8601_timestamp(\'' + formattedStartDateTime + '\') AND ' + 
+                               lastModifiedField + ' < from_iso8601_timestamp(\'' + formattedEndDateTime + '\')';
+        
+        // Replace existing date filter patterns
+        // Pattern 1: Replace "fieldName >= from_iso8601_timestamp('datetime') AND fieldName < from_iso8601_timestamp('datetime')" pattern
+        if (modifiedWhere.contains(lastModifiedField + ' >= from_iso8601_timestamp(\'') && 
+            modifiedWhere.contains(lastModifiedField + ' < from_iso8601_timestamp(\'')) {
             
-            // Format dates for CDP SQL - use ISO date format
-            String formattedStartDate = DC_DateUtil.formatDateForCDP(startDate);
-            String formattedEndDate = DC_DateUtil.formatDateForCDP(endDate);
-            
-            // Build the proper date range filter for CDP
-            String dateRangeFilter = lastModifiedField + ' >= \'' + formattedStartDate + '\' AND ' + 
-                                   lastModifiedField + ' <= \'' + formattedEndDate + '\'';
-            
-            // Replace existing date filter patterns
-            // Pattern 1: Replace "fieldName >= 'date' AND fieldName <= 'date'" pattern
-            if (modifiedWhere.contains(lastModifiedField + ' >= \'') && 
-                modifiedWhere.contains(lastModifiedField + ' <= \'')) {
-                
-                // Find and replace the entire date range
-                Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= \'');
-                if (startPos >= 0) {
-                    // Find the end of the second date condition
-                    String searchPattern = lastModifiedField + ' <= \'';
-                    Integer endPatternStart = modifiedWhere.indexOf(searchPattern, startPos);
-                    if (endPatternStart >= 0) {
-                        Integer endPatternEnd = modifiedWhere.indexOf('\'', endPatternStart + searchPattern.length());
-                        if (endPatternEnd >= 0) {
-                            String beforeDate = modifiedWhere.substring(0, startPos);
-                            String afterDate = modifiedWhere.substring(endPatternEnd + 1);
-                            modifiedWhere = beforeDate + dateRangeFilter + afterDate;
-                        }
-                    }
-                }
-            }
-            // Pattern 2: Replace single date condition like "fieldName >= 'date'"
-            else if (modifiedWhere.contains(lastModifiedField + ' >= \'')) {
-                Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= \'');
-                if (startPos >= 0) {
-                    Integer endPos = modifiedWhere.indexOf('\'', startPos + (lastModifiedField + ' >= \'').length());
-                    if (endPos >= 0) {
+            // Find and replace the entire date range
+            Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= from_iso8601_timestamp(\'');
+            if (startPos >= 0) {
+                // Find the end of the second timestamp condition
+                String searchPattern = lastModifiedField + ' < from_iso8601_timestamp(\'';
+                Integer endPatternStart = modifiedWhere.indexOf(searchPattern, startPos);
+                if (endPatternStart >= 0) {
+                    // Find the closing quote and parenthesis of the second timestamp value
+                    Integer dateValueStart = endPatternStart + searchPattern.length();
+                    Integer quoteEnd = modifiedWhere.indexOf('\')', dateValueStart);
+                    if (quoteEnd >= 0) {
                         String beforeDate = modifiedWhere.substring(0, startPos);
-                        String afterDate = modifiedWhere.substring(endPos + 1);
+                        String afterDate = modifiedWhere.substring(quoteEnd + 2); // +2 for ')
                         modifiedWhere = beforeDate + dateRangeFilter + afterDate;
                     }
                 }
             }
-            // Pattern 3: Handle any remaining date patterns as fallback
-            else {
-                System.debug(LoggingLevel.WARN, 'No recognized date filter pattern found in: ' + originalWhere);
-                System.debug(LoggingLevel.WARN, 'Using original WHERE clause with warning');
+        }
+        // Pattern 2: Replace old format "fieldName >= 'datetime' AND fieldName <= 'datetime'" pattern
+        else if (modifiedWhere.contains(lastModifiedField + ' >= \'') && 
+                 modifiedWhere.contains(lastModifiedField + ' <= \'')) {
+            
+            Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= \'');
+            if (startPos >= 0) {
+                String searchPattern = lastModifiedField + ' <= \'';
+                Integer endPatternStart = modifiedWhere.indexOf(searchPattern, startPos);
+                if (endPatternStart >= 0) {
+                    Integer dateValueStart = endPatternStart + searchPattern.length();
+                    Integer endPatternEnd = modifiedWhere.indexOf('\'', dateValueStart);
+                    if (endPatternEnd >= 0) {
+                        String beforeDate = modifiedWhere.substring(0, startPos);
+                        String afterDate = modifiedWhere.substring(endPatternEnd + 1);
+                        modifiedWhere = beforeDate + dateRangeFilter + afterDate;
+                    }
+                }
             }
         }
-        
-        return modifiedWhere;
+        // Pattern 3: Replace single timestamp condition like "fieldName >= from_iso8601_timestamp('datetime')"
+        else if (modifiedWhere.contains(lastModifiedField + ' >= from_iso8601_timestamp(\'')) {
+            Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= from_iso8601_timestamp(\'');
+            if (startPos >= 0) {
+                // Find the end of the timestamp function call
+                Integer dateValueStart = startPos + (lastModifiedField + ' >= from_iso8601_timestamp(\'').length();
+                Integer endPos = modifiedWhere.indexOf('\')', dateValueStart);
+                if (endPos >= 0) {
+                    String beforeDate = modifiedWhere.substring(0, startPos);
+                    String afterDate = modifiedWhere.substring(endPos + 2); // +2 for ')
+                    modifiedWhere = beforeDate + dateRangeFilter + afterDate;
+                }
+            }
+        }
+        // Pattern 4: Replace single date condition like "fieldName >= 'datetime'"
+        else if (modifiedWhere.contains(lastModifiedField + ' >= \'')) {
+            Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= \'');
+            if (startPos >= 0) {
+                Integer dateValueStart = startPos + (lastModifiedField + ' >= \'').length();
+                Integer endPos = modifiedWhere.indexOf('\'', dateValueStart);
+                if (endPos >= 0) {
+                    String beforeDate = modifiedWhere.substring(0, startPos);
+                    String afterDate = modifiedWhere.substring(endPos + 1);
+                    modifiedWhere = beforeDate + dateRangeFilter + afterDate;
+                }
+            }
+        }
+        // Pattern 5: Handle any remaining date patterns as fallback
+        else {
+            System.debug(LoggingLevel.WARN, 'No recognized date filter pattern found in: ' + originalWhere);
+            System.debug(LoggingLevel.WARN, 'Using original WHERE clause with warning');
+        }
     }
+    
+    return modifiedWhere;
+}
 
     private void processNextDateChunk(DC_IStep step, String stepName) {
         // Calculate next date chunk

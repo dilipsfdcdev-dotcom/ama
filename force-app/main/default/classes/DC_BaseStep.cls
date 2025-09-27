@@ -28,15 +28,29 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         return data.getAdditionalData(sourceAlias, keyValue);
     }
     
-    // Helper method to safely get field value from SObject (works with CDP query results)
+    // **UPDATED: Helper method to safely get field value from SObject (works with CDP query results)**
     protected Object getFieldValue(SObject record, String fieldName) {
         try {
+            // Check if this SObject has CDP data associated with it
+            if (DC_CdpQueryUtil.hasCdpData(record)) {
+                Map<String, Object> cdpData = DC_CdpQueryUtil.getCdpData(record);
+                if (cdpData != null && cdpData.containsKey(fieldName)) {
+                    return cdpData.get(fieldName);
+                }
+            }
+            
+            // Try regular SObject field access as fallback
             return record.get(fieldName);
         } catch (Exception e) {
-            // For CDP query results stored as maps, try alternative access
-            if (record instanceof Account) { // Our generic container
+            // For other edge cases, try alternative access
+            try {
                 Map<String, Object> recordMap = record.getPopulatedFieldsAsMap();
-                return recordMap.get(fieldName);
+                if (recordMap != null && recordMap.containsKey(fieldName)) {
+                    return recordMap.get(fieldName);
+                }
+            } catch (Exception e2) {
+                // Last resort: log and return null
+                System.debug('Could not get field ' + fieldName + ' from record: ' + e2.getMessage());
             }
             return null;
         }

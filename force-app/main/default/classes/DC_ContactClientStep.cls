@@ -9,7 +9,9 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-        return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ' + DC_DateUtil.getDateFilterClause(STEP_NAME);
+        // **FIX: Use CDP timestamp function for proper date filtering**
+        String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
+        return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {
@@ -48,7 +50,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             }
         }
 
-        // Query contact points for all parties using CDP
+        // Query contact points for all parties using CDP with timestamp functions
         Set<String> allPartyIds = clientsByParty.keySet();
         Map<String, String> emailByParty = queryEmailContactPointsCDP(allPartyIds);
         Map<String, String> phoneByParty = queryPhoneContactPointsCDP(allPartyIds);

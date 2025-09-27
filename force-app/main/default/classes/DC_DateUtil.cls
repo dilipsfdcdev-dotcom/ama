@@ -69,29 +69,39 @@ public with sharing class DC_DateUtil {
         
         String dateFilter = '';
         
-        // **FIX: Use proper CDP date format instead of Salesforce relative date functions**
+        // **FIX: Use CDP from_iso8601_timestamp() function for timestamp fields**
         if (syncDays == 1) {
-            // For 1 day, use today's date in ISO format
-            Date today = Date.today();
-            String todayStr = formatDateForCDP(today);
-            System.debug(LoggingLevel.ERROR, 'Today formatted: ' + todayStr);
-            dateFilter = lastModifiedFieldName + ' >= \'' + todayStr + '\'';
+            // For 1 day, use today's date range
+            DateTime todayStart = DateTime.newInstance(Date.today(), Time.newInstance(0, 0, 0, 0));
+            DateTime tomorrowStart = DateTime.newInstance(Date.today().addDays(1), Time.newInstance(0, 0, 0, 0));
+            String todayStartStr = formatDateTimeForCDP(todayStart);
+            String tomorrowStartStr = formatDateTimeForCDP(tomorrowStart);
+            System.debug(LoggingLevel.ERROR, 'Today start formatted: ' + todayStartStr);
+            System.debug(LoggingLevel.ERROR, 'Tomorrow start formatted: ' + tomorrowStartStr);
+            dateFilter = lastModifiedFieldName + ' >= from_iso8601_timestamp(\'' + todayStartStr + '\') AND ' + 
+                         lastModifiedFieldName + ' < from_iso8601_timestamp(\'' + tomorrowStartStr + '\')';
         } else if (syncDays > 1) {
-            // For multiple days, calculate the date range
-            Date endDate = Date.today();
-            Date startDate = endDate.addDays(-(syncDays - 1));
-            String startDateStr = formatDateForCDP(startDate);
-            String endDateStr = formatDateForCDP(endDate);
-            System.debug(LoggingLevel.ERROR, 'Start Date: ' + startDate + ' formatted: ' + startDateStr);
-            System.debug(LoggingLevel.ERROR, 'End Date: ' + endDate + ' formatted: ' + endDateStr);
-            dateFilter = lastModifiedFieldName + ' >= \'' + startDateStr + '\' AND ' + 
-                         lastModifiedFieldName + ' <= \'' + endDateStr + '\'';
+            // For multiple days, calculate the datetime range
+            Date startDate = Date.today().addDays(-(syncDays - 1));
+            Date endDate = Date.today().addDays(1); // Exclusive end date
+            DateTime startDateTime = DateTime.newInstance(startDate, Time.newInstance(0, 0, 0, 0));
+            DateTime endDateTime = DateTime.newInstance(endDate, Time.newInstance(0, 0, 0, 0));
+            String startDateTimeStr = formatDateTimeForCDP(startDateTime);
+            String endDateTimeStr = formatDateTimeForCDP(endDateTime);
+            System.debug(LoggingLevel.ERROR, 'Start DateTime: ' + startDateTime + ' formatted: ' + startDateTimeStr);
+            System.debug(LoggingLevel.ERROR, 'End DateTime: ' + endDateTime + ' formatted: ' + endDateTimeStr);
+            dateFilter = lastModifiedFieldName + ' >= from_iso8601_timestamp(\'' + startDateTimeStr + '\') AND ' + 
+                         lastModifiedFieldName + ' < from_iso8601_timestamp(\'' + endDateTimeStr + '\')';
         } else {
             // Default fallback to today if no valid sync days found
-            Date today = Date.today();
-            String todayStr = formatDateForCDP(today);
-            System.debug(LoggingLevel.ERROR, 'Fallback - Today formatted: ' + todayStr);
-            dateFilter = lastModifiedFieldName + ' >= \'' + todayStr + '\'';
+            DateTime todayStart = DateTime.newInstance(Date.today(), Time.newInstance(0, 0, 0, 0));
+            DateTime tomorrowStart = DateTime.newInstance(Date.today().addDays(1), Time.newInstance(0, 0, 0, 0));
+            String todayStartStr = formatDateTimeForCDP(todayStart);
+            String tomorrowStartStr = formatDateTimeForCDP(tomorrowStart);
+            System.debug(LoggingLevel.ERROR, 'Fallback - Today start formatted: ' + todayStartStr);
+            System.debug(LoggingLevel.ERROR, 'Fallback - Tomorrow start formatted: ' + tomorrowStartStr);
+            dateFilter = lastModifiedFieldName + ' >= from_iso8601_timestamp(\'' + todayStartStr + '\') AND ' + 
+                         lastModifiedFieldName + ' < from_iso8601_timestamp(\'' + tomorrowStartStr + '\')';
         }
         
         System.debug(LoggingLevel.ERROR, 'Generated Date Filter: ' + dateFilter);
@@ -152,6 +162,18 @@ public with sharing class DC_DateUtil {
         
         DateTime dt = DateTime.newInstance(dateValue, Time.newInstance(0, 0, 0, 0));
         return dt.formatGmt('yyyy-MM-dd');
+    }
+    
+    /**
+     * Format datetime for CDP queries in ISO format with timezone (YYYY-MM-DDTHH:mm:ss.sssZ)
+     * @param dateTimeValue The datetime to format
+     * @return String The formatted datetime string
+     */
+    public static String formatDateTimeForCDP(DateTime dateTimeValue) {
+        if (dateTimeValue == null) return null;
+        
+        // Use ISO 8601 format with timezone indicator
+        return dateTimeValue.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'Z\'');
     }
     
     /**

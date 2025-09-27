@@ -9,6 +9,7 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
+        // **FIX: Use CDP timestamp function for proper date filtering**
         String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
         return 'ssot__DataSourceObjectId__c = \'Seaware_Opportunity_E1C50A03\' AND ' + dateFilter;
     }
@@ -22,6 +23,8 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
         f.add('Sailing__c'); // for Sailing lookup
         f.add('Agent_ID__c'); // for Agent lookup
         f.add('SEAWARE_Agency_ID__c');
+        // **FIX: Add the last modified date field to the field list**
+        f.add('ssot__LastModifiedDate__c');
         return f;
     }
 

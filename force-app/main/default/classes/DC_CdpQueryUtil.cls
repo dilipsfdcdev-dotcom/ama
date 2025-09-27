@@ -31,7 +31,19 @@ public with sharing class DC_CdpQueryUtil {
             System.debug(LoggingLevel.ERROR, 'Failed SQL: ' + sql);
             System.debug(LoggingLevel.ERROR, '=== END CDP QUERY ERROR ===');
             
-            throw new DC_SyncException('CDP Query execution failed: ' + e.getMessage());
+            // **FIX: Parse the error message to provide more specific guidance**
+            String errorMessage = e.getMessage();
+            String enhancedMessage = 'CDP Query execution failed: ' + errorMessage;
+            
+            if (errorMessage.contains('TYPE_MISMATCH')) {
+                enhancedMessage += '. HINT: Check date/datetime field formats and data types in WHERE clause.';
+            } else if (errorMessage.contains('BAD_REQUEST')) {
+                enhancedMessage += '. HINT: Verify field names, object names, and SQL syntax.';
+            } else if (errorMessage.contains('FIELD_NOT_FOUND')) {
+                enhancedMessage += '. HINT: One or more fields in SELECT or WHERE clause do not exist.';
+            }
+            
+            throw new DC_SyncException(enhancedMessage);
         }
     }
     
@@ -81,6 +93,7 @@ public with sharing class DC_CdpQueryUtil {
     
     /**
      * Convert Map<String, Object> to SObject for compatibility with existing code
+     * Uses Account as container and stores CDP data in a static map for retrieval
      */
     public static List<SObject> convertToSObjects(List<Map<String, Object>> mapRecords, String targetSObjectType) {
         List<SObject> sobjectRecords = new List<SObject>();
@@ -89,28 +102,30 @@ public with sharing class DC_CdpQueryUtil {
             return sobjectRecords;
         }
         
-        // Use a generic SObject type for Data Cloud records
-        Schema.SObjectType sType = Schema.getGlobalDescribe().get('Account'); // Use Account as generic container
-        
         for (Map<String, Object> mapRec : mapRecords) {
-            SObject sObj = sType.newSObject();
+            // Create an Account SObject as container
+            Account container = new Account();
+            sobjectRecords.add(container);
             
-            // Copy all fields from map to SObject
-            for (String fieldName : mapRec.keySet()) {
-                Object value = mapRec.get(fieldName);
-                if (value != null) {
-                    try {
-                        sObj.put(fieldName, value);
-                    } catch (Exception e) {
-                        // Field might not exist on Account, but we'll store it anyway for processing
-                        System.debug('Warning: Could not set field ' + fieldName + ' on SObject: ' + e.getMessage());
-                    }
-                }
-            }
-            sobjectRecords.add(sObj);
+            // Store the CDP data in a static map keyed by the SObject
+            CDP_DATA_MAP.put(container, mapRec);
         }
         
         return sobjectRecords;
+    }
+    
+    /**
+     * Get CDP data for a given SObject (if it was created from CDP query)
+     */
+    public static Map<String, Object> getCdpData(SObject record) {
+        return CDP_DATA_MAP.get(record);
+    }
+    
+    /**
+     * Check if an SObject has CDP data associated with it
+     */
+    public static Boolean hasCdpData(SObject record) {
+        return CDP_DATA_MAP.containsKey(record);
     }
     
     /**
@@ -128,7 +143,34 @@ public with sharing class DC_CdpQueryUtil {
         System.debug(LoggingLevel.ERROR, 'Limit: ' + limitSize);
         System.debug(LoggingLevel.ERROR, 'Offset: ' + offsetValue);
         
-        String sql = 'SELECT ' + String.join(new List<String>(fields), ', ') + 
+        // **FIX: Validate inputs to prevent SQL injection and malformed queries**
+        if (String.isBlank(objectName)) {
+            throw new DC_SyncException('Object name cannot be blank for CDP query');
+        }
+        
+        if (fields == null || fields.isEmpty()) {
+            throw new DC_SyncException('Field list cannot be empty for CDP query');
+        }
+        
+        // **FIX: Ensure field names are properly escaped and valid**
+        List<String> validatedFields = new List<String>();
+        for (String field : fields) {
+            if (!String.isBlank(field)) {
+                // Basic field name validation - alphanumeric plus underscores and double underscores
+                String fieldPattern = '^[a-zA-Z][a-zA-Z0-9_]*(__[a-zA-Z0-9_]+)*$';
+                if (Pattern.matches(fieldPattern, field)) {
+                    validatedFields.add(field);
+                } else {
+                    System.debug(LoggingLevel.WARN, 'Skipping potentially invalid field name: ' + field);
+                }
+            }
+        }
+        
+        if (validatedFields.isEmpty()) {
+            throw new DC_SyncException('No valid fields found for CDP query after validation');
+        }
+        
+        String sql = 'SELECT ' + String.join(validatedFields, ', ') + 
                     ' FROM ' + objectName;
         
         if (!String.isBlank(whereClause)) {
@@ -174,4 +216,7 @@ public with sharing class DC_CdpQueryUtil {
             return (this.pos > o.pos) ? 1 : -1;
         }
     }
+    
+    // Static map to store CDP data for SObjects
+    private static Map<SObject, Map<String, Object>> CDP_DATA_MAP = new Map<SObject, Map<String, Object>>();
 }
