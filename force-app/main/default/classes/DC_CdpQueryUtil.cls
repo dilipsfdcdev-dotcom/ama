@@ -10,7 +10,12 @@ public with sharing class DC_CdpQueryUtil {
             ConnectApi.CdpQueryInput input = new ConnectApi.CdpQueryInput();
             input.sql = sql;
             
-            System.debug(LoggingLevel.WARN, 'Executing CDP Query: ' + sql);
+            // ENHANCED LOGGING - Log the exact SQL being executed
+            System.debug(LoggingLevel.ERROR, '=== CDP QUERY EXECUTION START ===');
+            System.debug(LoggingLevel.ERROR, 'SQL Query: ' + sql);
+            System.debug(LoggingLevel.ERROR, 'SQL Length: ' + sql.length());
+            System.debug(LoggingLevel.ERROR, '=== CDP QUERY EXECUTION ===');
+            
             ConnectApi.CdpQueryOutputV2 page = ConnectApi.CdpQuery.queryAnsiSqlV2(input);
             
             List<Map<String, Object>> results = toKeyValue(page);
@@ -18,8 +23,14 @@ public with sharing class DC_CdpQueryUtil {
             
             return results;
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'CDP Query failed: ' + e.getMessage());
-            System.debug(LoggingLevel.ERROR, 'SQL: ' + sql);
+            // ENHANCED ERROR LOGGING
+            System.debug(LoggingLevel.ERROR, '=== CDP QUERY ERROR ===');
+            System.debug(LoggingLevel.ERROR, 'Error Message: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error Type: ' + e.getTypeName());
+            System.debug(LoggingLevel.ERROR, 'Stack Trace: ' + e.getStackTraceString());
+            System.debug(LoggingLevel.ERROR, 'Failed SQL: ' + sql);
+            System.debug(LoggingLevel.ERROR, '=== END CDP QUERY ERROR ===');
+            
             throw new DC_SyncException('CDP Query execution failed: ' + e.getMessage());
         }
     }
@@ -107,6 +118,16 @@ public with sharing class DC_CdpQueryUtil {
      */
     public static String buildDataCloudSql(String objectName, Set<String> fields, String whereClause, 
                                           String orderByField, Integer limitSize, Integer offsetValue) {
+        
+        // ENHANCED LOGGING - Log SQL building process
+        System.debug(LoggingLevel.ERROR, '=== BUILDING CDP SQL ===');
+        System.debug(LoggingLevel.ERROR, 'Object: ' + objectName);
+        System.debug(LoggingLevel.ERROR, 'Fields: ' + fields);
+        System.debug(LoggingLevel.ERROR, 'Where Clause: ' + whereClause);
+        System.debug(LoggingLevel.ERROR, 'Order By: ' + orderByField);
+        System.debug(LoggingLevel.ERROR, 'Limit: ' + limitSize);
+        System.debug(LoggingLevel.ERROR, 'Offset: ' + offsetValue);
+        
         String sql = 'SELECT ' + String.join(new List<String>(fields), ', ') + 
                     ' FROM ' + objectName;
         
@@ -125,6 +146,9 @@ public with sharing class DC_CdpQueryUtil {
         if (offsetValue != null && offsetValue > 0) {
             sql += ' OFFSET ' + offsetValue;
         }
+        
+        System.debug(LoggingLevel.ERROR, 'Built SQL: ' + sql);
+        System.debug(LoggingLevel.ERROR, '=== END BUILDING CDP SQL ===');
         
         return sql;
     }

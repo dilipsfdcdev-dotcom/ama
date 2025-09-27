@@ -100,18 +100,35 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
 
     private List<SObject> queryDataCloudObject(DC_IStep step, String stepName, Set<String> srcFields, 
                                               String srcObject, String orderField) {
+        
+        System.debug(LoggingLevel.ERROR, '=== QUERY DATA CLOUD OBJECT START ===');
+        System.debug(LoggingLevel.ERROR, 'Step Name: ' + stepName);
+        System.debug(LoggingLevel.ERROR, 'Source Object: ' + srcObject);
+        System.debug(LoggingLevel.ERROR, 'Order Field: ' + orderField);
+        System.debug(LoggingLevel.ERROR, 'Source Fields: ' + srcFields);
+        System.debug(LoggingLevel.ERROR, 'Chunk Start Date: ' + chunkStartDate);
+        System.debug(LoggingLevel.ERROR, 'Chunk End Date: ' + chunkEndDate);
+        System.debug(LoggingLevel.ERROR, 'Offset Value: ' + offsetValue);
+        
         String whereClause = '';
         
         if (step instanceof DC_IWhere) {
             String wc = ((DC_IWhere)step).whereClause();
+            System.debug(LoggingLevel.ERROR, 'Original WHERE clause from step: ' + wc);
+            
             if (!String.isBlank(wc)) {
                 if (chunkStartDate != null || chunkEndDate != null) {
                     // Replace date filter with chunk-specific date filter
-                    wc = replaceDateFilterWithChunk(wc, chunkStartDate, chunkEndDate, stepName);
+                    String modifiedWc = replaceDateFilterWithChunk(wc, chunkStartDate, chunkEndDate, stepName);
+                    System.debug(LoggingLevel.ERROR, 'Modified WHERE clause after date chunk replacement: ' + modifiedWc);
+                    whereClause = modifiedWc;
+                } else {
+                    whereClause = wc;
                 }
-                whereClause = wc;
             }
         }
+        
+        System.debug(LoggingLevel.ERROR, 'Final WHERE clause: ' + whereClause);
         
         // Build CDP SQL query
         String sql = DC_CdpQueryUtil.buildDataCloudSql(
@@ -123,11 +140,18 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             offsetValue
         );
         
+        System.debug(LoggingLevel.ERROR, 'About to execute CDP SQL: ' + sql);
+        
         // Execute CDP query
         List<Map<String, Object>> mapResults = DC_CdpQueryUtil.executeQuery(sql);
         
         // Convert to SObjects for compatibility with existing code
-        return DC_CdpQueryUtil.convertToSObjects(mapResults, 'Account');
+        List<SObject> results = DC_CdpQueryUtil.convertToSObjects(mapResults, 'Account');
+        
+        System.debug(LoggingLevel.ERROR, 'CDP Query returned ' + results.size() + ' records');
+        System.debug(LoggingLevel.ERROR, '=== QUERY DATA CLOUD OBJECT END ===');
+        
+        return results;
     }
 
     private List<SObject> queryRegularSalesforceObject(DC_IStep step, String stepName, Set<String> srcFields, 
@@ -198,6 +222,7 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         processUpsertAndContinue(step, stepName, mainPage, bundle, isDataCloudObject);
     }
 
+// Fixed replaceDateFilterWithChunk method for DC_StepRunner.cls
     private String replaceDateFilterWithChunk(String originalWhere, Date startDate, Date endDate, String stepName) {
         // Replace date filter patterns with chunk-specific dates
         String modifiedWhere = originalWhere;
@@ -210,18 +235,52 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                 lastModifiedField = DC_DateUtil.getLastModifiedFieldName(sourceObject);
             }
             
-            // Format dates for CDP SQL - use standard date format
-            DateTime startDateTime = DateTime.newInstance(startDate, Time.newInstance(0, 0, 0, 0));
-            DateTime endDateTime = DateTime.newInstance(endDate, Time.newInstance(0, 0, 0, 0));
-            String formattedStartDate = startDateTime.formatGmt('yyyy-MM-dd');
-            String formattedEndDate = endDateTime.formatGmt('yyyy-MM-dd');
+            // Format dates for CDP SQL - use ISO date format
+            String formattedStartDate = DC_DateUtil.formatDateForCDP(startDate);
+            String formattedEndDate = DC_DateUtil.formatDateForCDP(endDate);
             
-            // Replace LAST_N_DAYS with specific date range
-            String dateRangeFilter = '>= \'' + formattedStartDate + '\' AND ' + 
+            // Build the proper date range filter for CDP
+            String dateRangeFilter = lastModifiedField + ' >= \'' + formattedStartDate + '\' AND ' + 
                                    lastModifiedField + ' <= \'' + formattedEndDate + '\'';
             
-            modifiedWhere = modifiedWhere.replaceAll('= LAST_N_DAYS:\\d+', dateRangeFilter);
-            modifiedWhere = modifiedWhere.replaceAll('= TODAY', dateRangeFilter);
+            // Replace existing date filter patterns
+            // Pattern 1: Replace "fieldName >= 'date' AND fieldName <= 'date'" pattern
+            if (modifiedWhere.contains(lastModifiedField + ' >= \'') && 
+                modifiedWhere.contains(lastModifiedField + ' <= \'')) {
+                
+                // Find and replace the entire date range
+                Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= \'');
+                if (startPos >= 0) {
+                    // Find the end of the second date condition
+                    String searchPattern = lastModifiedField + ' <= \'';
+                    Integer endPatternStart = modifiedWhere.indexOf(searchPattern, startPos);
+                    if (endPatternStart >= 0) {
+                        Integer endPatternEnd = modifiedWhere.indexOf('\'', endPatternStart + searchPattern.length());
+                        if (endPatternEnd >= 0) {
+                            String beforeDate = modifiedWhere.substring(0, startPos);
+                            String afterDate = modifiedWhere.substring(endPatternEnd + 1);
+                            modifiedWhere = beforeDate + dateRangeFilter + afterDate;
+                        }
+                    }
+                }
+            }
+            // Pattern 2: Replace single date condition like "fieldName >= 'date'"
+            else if (modifiedWhere.contains(lastModifiedField + ' >= \'')) {
+                Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= \'');
+                if (startPos >= 0) {
+                    Integer endPos = modifiedWhere.indexOf('\'', startPos + (lastModifiedField + ' >= \'').length());
+                    if (endPos >= 0) {
+                        String beforeDate = modifiedWhere.substring(0, startPos);
+                        String afterDate = modifiedWhere.substring(endPos + 1);
+                        modifiedWhere = beforeDate + dateRangeFilter + afterDate;
+                    }
+                }
+            }
+            // Pattern 3: Handle any remaining date patterns as fallback
+            else {
+                System.debug(LoggingLevel.WARN, 'No recognized date filter pattern found in: ' + originalWhere);
+                System.debug(LoggingLevel.WARN, 'Using original WHERE clause with warning');
+            }
         }
         
         return modifiedWhere;

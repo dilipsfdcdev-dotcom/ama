@@ -45,30 +45,59 @@ public with sharing class DC_DateUtil {
      * @return String The WHERE clause for date filtering
      */
     public static String getDateFilterClause(String stepName, String lastModifiedFieldName) {
+        System.debug(LoggingLevel.ERROR, '=== DATE FILTER GENERATION START ===');
+        System.debug(LoggingLevel.ERROR, 'Step Name: ' + stepName);
+        System.debug(LoggingLevel.ERROR, 'Input lastModifiedFieldName: ' + lastModifiedFieldName);
+        
         // Auto-detect field name if not provided
         if (String.isBlank(lastModifiedFieldName)) {
             // Try to get source object from step to auto-detect field name
             DC_IStep step = DC_StepFactory.make(stepName);
             if (step != null) {
                 String sourceObject = step.sourceObjectApi();
+                System.debug(LoggingLevel.ERROR, 'Source Object: ' + sourceObject);
                 lastModifiedFieldName = getLastModifiedFieldName(sourceObject);
             } else {
                 lastModifiedFieldName = 'ssot__LastModifiedDate__c'; // fallback
             }
         }
         
-        Integer syncDays = getSyncDaysForStep(stepName);
+        System.debug(LoggingLevel.ERROR, 'Final lastModifiedFieldName: ' + lastModifiedFieldName);
         
+        Integer syncDays = getSyncDaysForStep(stepName);
+        System.debug(LoggingLevel.ERROR, 'Sync Days: ' + syncDays);
+        
+        String dateFilter = '';
+        
+        // **FIX: Use proper CDP date format instead of Salesforce relative date functions**
         if (syncDays == 1) {
-            // For 1 day, use TODAY
-            return lastModifiedFieldName + ' = TODAY';
+            // For 1 day, use today's date in ISO format
+            Date today = Date.today();
+            String todayStr = formatDateForCDP(today);
+            System.debug(LoggingLevel.ERROR, 'Today formatted: ' + todayStr);
+            dateFilter = lastModifiedFieldName + ' >= \'' + todayStr + '\'';
         } else if (syncDays > 1) {
-            // For multiple days, use LAST_N_DAYS
-            return lastModifiedFieldName + ' = LAST_N_DAYS:' + syncDays;
+            // For multiple days, calculate the date range
+            Date endDate = Date.today();
+            Date startDate = endDate.addDays(-(syncDays - 1));
+            String startDateStr = formatDateForCDP(startDate);
+            String endDateStr = formatDateForCDP(endDate);
+            System.debug(LoggingLevel.ERROR, 'Start Date: ' + startDate + ' formatted: ' + startDateStr);
+            System.debug(LoggingLevel.ERROR, 'End Date: ' + endDate + ' formatted: ' + endDateStr);
+            dateFilter = lastModifiedFieldName + ' >= \'' + startDateStr + '\' AND ' + 
+                         lastModifiedFieldName + ' <= \'' + endDateStr + '\'';
         } else {
-            // Default fallback to TODAY if no valid sync days found
-            return lastModifiedFieldName + ' = TODAY';
+            // Default fallback to today if no valid sync days found
+            Date today = Date.today();
+            String todayStr = formatDateForCDP(today);
+            System.debug(LoggingLevel.ERROR, 'Fallback - Today formatted: ' + todayStr);
+            dateFilter = lastModifiedFieldName + ' >= \'' + todayStr + '\'';
         }
+        
+        System.debug(LoggingLevel.ERROR, 'Generated Date Filter: ' + dateFilter);
+        System.debug(LoggingLevel.ERROR, '=== DATE FILTER GENERATION END ===');
+        
+        return dateFilter;
     }
     
     /**
@@ -114,7 +143,19 @@ public with sharing class DC_DateUtil {
     }
     
     /**
-     * Get formatted date filter clause for non-Data Cloud objects
+     * Format date for CDP queries in ISO format (YYYY-MM-DD)
+     * @param dateValue The date to format
+     * @return String The formatted date string
+     */
+    public static String formatDateForCDP(Date dateValue) {
+        if (dateValue == null) return null;
+        
+        DateTime dt = DateTime.newInstance(dateValue, Time.newInstance(0, 0, 0, 0));
+        return dt.formatGmt('yyyy-MM-dd');
+    }
+    
+    /**
+     * Get formatted date filter clause for non-Data Cloud objects (backward compatibility)
      * @param stepName The step name to look up in DataSync_ObjectOrder__mdt  
      * @param lastModifiedFieldName The field name for last modified date (default: 'Last_Modified_Date__c')
      * @return String The WHERE clause for date filtering
@@ -124,6 +165,8 @@ public with sharing class DC_DateUtil {
             lastModifiedFieldName = 'Last_Modified_Date__c';
         }
         
+        // For Seaware objects, we might still want to use relative date functions if they support them
+        // But for now, let's use the same format as CDP for consistency
         return getDateFilterClause(stepName, lastModifiedFieldName);
     }
 }
