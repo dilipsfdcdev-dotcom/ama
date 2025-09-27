@@ -5,6 +5,7 @@ public with sharing class DC_SailingStep extends DC_BaseStep implements DC_IWher
     private static final String SAILING_EXTID = 'Sailing_Code__c';
     private static final String TGT_OBJECT = 'Sailing__c';
     private static final String STEP_NAME = 'Sailing';
+    
     public override String sourceObjectApi() { return SRC_OBJECT; }
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
@@ -29,38 +30,30 @@ public with sharing class DC_SailingStep extends DC_BaseStep implements DC_IWher
         // Bulk resolve Ship by external id (using Ship_Code now)
         Set<String> shipKeys = new Set<String>();
         for (SObject src : scope) {
-            String k = (String)src.get('Ship_ID__c');
+            String k = (String) getFieldValue(src, 'Ship_ID__c');
             if (!String.isBlank(k)) shipKeys.add(k);
         }
-        Map<String, Id> shipByExt = new Map<String, Id>();
-        if (!shipKeys.isEmpty()) {
-            for (Ship__c s : [
-                SELECT Id, Ship_Code__c
-                FROM Ship__c
-                WHERE Ship_Code__c IN :shipKeys
-            ]) {
-                shipByExt.put(s.Ship_Code__c, s.Id);
-            }
-        }
+        Map<String, Id> shipByExt = bulkLookupByExternalId('Ship__c', 'Ship_Code__c', shipKeys);
         
         for (SObject src : scope) {
             SObject sailing = t.newSObject();
-            sailing.put(SAILING_EXTID, (String)src.get(ORDER_BY_SRC));
+            String sailingCode = (String) getFieldValue(src, ORDER_BY_SRC);
+            setFieldValue(sailing, SAILING_EXTID, sailingCode);
             
             for (DC_FieldMap m : DC_Mappings.SAILING_MAP) {
                 if (m.tgt == 'Ship__c') {
                     // Handle Ship lookup using Ship_Code
-                    String shipKey = (String)src.get('Ship_ID__c'); // This should map to Ship_Code
+                    String shipKey = (String) getFieldValue(src, 'Ship_ID__c'); // This should map to Ship_Code
                     if (!String.isBlank(shipKey)) {
                         Id shipRecordId = shipByExt.get(shipKey);
                         if (shipRecordId != null) {
-                            sailing.put(m.tgt, shipRecordId);
+                            setFieldValue(sailing, m.tgt, shipRecordId);
                         }
                     }
                 } else {
-                    Object value = src.get(m.src);
+                    Object value = getFieldValue(src, m.src);
                     if (value != null) {
-                        sailing.put(m.tgt, value);
+                        setFieldValue(sailing, m.tgt, value);
                     }
                 }
             }

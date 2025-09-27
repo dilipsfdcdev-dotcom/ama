@@ -5,11 +5,11 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
     private final String lastKey;
     private final Integer pageSize;
     private final Integer offsetValue;
-    private final Date chunkStartDate;  // New: for date-based chunking
-    private final Date chunkEndDate;    // New: for date-based chunking
+    private final Date chunkStartDate;
+    private final Date chunkEndDate;
 
     public static final Integer DEFAULT_PAGE_SIZE = 200;
-    public static final Integer MAX_DATA_CLOUD_OFFSET = 2000;
+    public static final Integer MAX_CDP_OFFSET = 50000; // CDP has higher limits
 
     // Constructor for cursor-based pagination (backward compatibility)
     public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize) {
@@ -65,53 +65,22 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
 
     private void processSingleSourceStep(DC_IStep step, String stepName) {
         Set<String> srcFields = step.sourceFields();
-        String selectList = String.join(new List<String>(srcFields), ',');
         String srcObject = step.sourceObjectApi();
         String orderField = step.orderBySourceField();
 
-        String soql = 'SELECT ' + selectList + ' FROM ' + srcObject;
-
-        List<String> predicates = new List<String>();
-        
         // Determine if this is a Data Cloud object
         Boolean isDataCloudObject = srcObject.contains('__dlm') || srcObject.startsWith('ssot__');
         
-        if (step instanceof DC_IWhere) {
-            String wc = ((DC_IWhere)step).whereClause();
-            if (!String.isBlank(wc)) {
-                if (isDataCloudObject && (chunkStartDate != null || chunkEndDate != null)) {
-                    // Replace date filter with chunk-specific date filter
-                    wc = replaceDateFilterWithChunk(wc, chunkStartDate, chunkEndDate, stepName);
-                }
-                predicates.add(wc);
-            }
-        }
+        List<SObject> page;
         
         if (isDataCloudObject) {
-            // For Data Cloud objects, use OFFSET-based pagination with chunking
-            if (!predicates.isEmpty()) {
-                soql += ' WHERE ' + String.join(predicates, ' AND ');
-            }
-            soql += ' ORDER BY ' + orderField + ' ASC';
-            soql += ' LIMIT ' + pageSize;
-            if (offsetValue > 0) {
-                soql += ' OFFSET ' + offsetValue;
-            }
+            // Use CDP Query for Data Cloud objects
+            page = queryDataCloudObject(step, stepName, srcFields, srcObject, orderField);
         } else {
-            // For regular Salesforce objects, use cursor-based pagination
-            if (!String.isBlank(lastKey)) {
-                predicates.add(orderField + ' > \'' + String.escapeSingleQuotes(lastKey) + '\'');
-            }
-            if (!predicates.isEmpty()) {
-                soql += ' WHERE ' + String.join(predicates, ' AND ');
-            }
-            soql += ' ORDER BY ' + orderField + ' ASC';
-            soql += ' LIMIT ' + pageSize;
+            // Use regular SOQL for Salesforce objects
+            page = queryRegularSalesforceObject(step, stepName, srcFields, srcObject, orderField);
         }
 
-        System.debug(LoggingLevel.WARN, 'SOQL to execute: ' + soql);
-
-        List<SObject> page = Database.query(soql);
         System.debug(LoggingLevel.WARN, 'Fetched rows: ' + page.size());
 
         if (page.isEmpty()) {
@@ -129,51 +98,83 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         processUpsertAndContinue(step, stepName, page, bundle, isDataCloudObject);
     }
 
-    private void processMultiSourceStep(DC_IStep step, String stepName) {
-        // Similar logic to processSingleSourceStep but for multi-source
-        Set<String> srcFields = step.sourceFields();
-        String selectList = String.join(new List<String>(srcFields), ',');
-        String srcObject = step.sourceObjectApi();
-        String orderField = step.orderBySourceField();
-
-        String soql = 'SELECT ' + selectList + ' FROM ' + srcObject;
-
-        List<String> predicates = new List<String>();
-        Boolean isDataCloudObject = srcObject.contains('__dlm') || srcObject.startsWith('ssot__');
+    private List<SObject> queryDataCloudObject(DC_IStep step, String stepName, Set<String> srcFields, 
+                                              String srcObject, String orderField) {
+        String whereClause = '';
         
         if (step instanceof DC_IWhere) {
             String wc = ((DC_IWhere)step).whereClause();
             if (!String.isBlank(wc)) {
-                if (isDataCloudObject && (chunkStartDate != null || chunkEndDate != null)) {
+                if (chunkStartDate != null || chunkEndDate != null) {
+                    // Replace date filter with chunk-specific date filter
                     wc = replaceDateFilterWithChunk(wc, chunkStartDate, chunkEndDate, stepName);
                 }
+                whereClause = wc;
+            }
+        }
+        
+        // Build CDP SQL query
+        String sql = DC_CdpQueryUtil.buildDataCloudSql(
+            srcObject, 
+            srcFields, 
+            whereClause, 
+            orderField, 
+            pageSize, 
+            offsetValue
+        );
+        
+        // Execute CDP query
+        List<Map<String, Object>> mapResults = DC_CdpQueryUtil.executeQuery(sql);
+        
+        // Convert to SObjects for compatibility with existing code
+        return DC_CdpQueryUtil.convertToSObjects(mapResults, 'Account');
+    }
+
+    private List<SObject> queryRegularSalesforceObject(DC_IStep step, String stepName, Set<String> srcFields, 
+                                                      String srcObject, String orderField) {
+        String selectList = String.join(new List<String>(srcFields), ',');
+        String soql = 'SELECT ' + selectList + ' FROM ' + srcObject;
+
+        List<String> predicates = new List<String>();
+        
+        if (step instanceof DC_IWhere) {
+            String wc = ((DC_IWhere)step).whereClause();
+            if (!String.isBlank(wc)) {
                 predicates.add(wc);
             }
         }
         
+        // For regular Salesforce objects, use cursor-based pagination
+        if (!String.isBlank(lastKey)) {
+            predicates.add(orderField + ' > \'' + String.escapeSingleQuotes(lastKey) + '\'');
+        }
+        
+        if (!predicates.isEmpty()) {
+            soql += ' WHERE ' + String.join(predicates, ' AND ');
+        }
+        
+        soql += ' ORDER BY ' + orderField + ' ASC';
+        soql += ' LIMIT ' + pageSize;
+
+        System.debug(LoggingLevel.WARN, 'SOQL to execute: ' + soql);
+        return Database.query(soql);
+    }
+
+    private void processMultiSourceStep(DC_IStep step, String stepName) {
+        Set<String> srcFields = step.sourceFields();
+        String srcObject = step.sourceObjectApi();
+        String orderField = step.orderBySourceField();
+
+        Boolean isDataCloudObject = srcObject.contains('__dlm') || srcObject.startsWith('ssot__');
+        
+        List<SObject> mainPage;
+        
         if (isDataCloudObject) {
-            if (!predicates.isEmpty()) {
-                soql += ' WHERE ' + String.join(predicates, ' AND ');
-            }
-            soql += ' ORDER BY ' + orderField + ' ASC';
-            soql += ' LIMIT ' + pageSize;
-            if (offsetValue > 0) {
-                soql += ' OFFSET ' + offsetValue;
-            }
+            mainPage = queryDataCloudObject(step, stepName, srcFields, srcObject, orderField);
         } else {
-            if (!String.isBlank(lastKey)) {
-                predicates.add(orderField + ' > \'' + String.escapeSingleQuotes(lastKey) + '\'');
-            }
-            if (!predicates.isEmpty()) {
-                soql += ' WHERE ' + String.join(predicates, ' AND ');
-            }
-            soql += ' ORDER BY ' + orderField + ' ASC';
-            soql += ' LIMIT ' + pageSize;
+            mainPage = queryRegularSalesforceObject(step, stepName, srcFields, srcObject, orderField);
         }
 
-        System.debug(LoggingLevel.WARN, 'Main SOQL to execute: ' + soql);
-
-        List<SObject> mainPage = Database.query(soql);
         System.debug(LoggingLevel.WARN, 'Fetched main rows: ' + mainPage.size());
 
         if (mainPage.isEmpty()) {
@@ -202,7 +203,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         String modifiedWhere = originalWhere;
         
         if (startDate != null && endDate != null) {
-            // Get the correct last modified field name for this step
             DC_IStep step = DC_StepFactory.make(stepName);
             String lastModifiedField = 'ssot__LastModifiedDate__c'; // default
             if (step != null) {
@@ -210,16 +210,15 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                 lastModifiedField = DC_DateUtil.getLastModifiedFieldName(sourceObject);
             }
             
-            // Format dates for Data Cloud SOQL DateTime literals (YYYY-MM-DDTHH:mm:ss.sss+0000)
+            // Format dates for CDP SQL - use standard date format
             DateTime startDateTime = DateTime.newInstance(startDate, Time.newInstance(0, 0, 0, 0));
-            DateTime endDateTime = DateTime.newInstance(endDate, Time.newInstance(23, 59, 59, 999));
+            DateTime endDateTime = DateTime.newInstance(endDate, Time.newInstance(0, 0, 0, 0));
+            String formattedStartDate = startDateTime.formatGmt('yyyy-MM-dd');
+            String formattedEndDate = endDateTime.formatGmt('yyyy-MM-dd');
             
-            // Format as Data Cloud DateTime literals with milliseconds and timezone offset
-            String formattedStartDate = startDateTime.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'+0000\'');
-            String formattedEndDate = endDateTime.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'+0000\'');
-            
-            // Replace LAST_N_DAYS with specific date range using correct field name
-            String dateRangeFilter = '>= ' + formattedStartDate + ' AND ' + lastModifiedField + ' <= ' + formattedEndDate;
+            // Replace LAST_N_DAYS with specific date range
+            String dateRangeFilter = '>= \'' + formattedStartDate + '\' AND ' + 
+                                   lastModifiedField + ' <= \'' + formattedEndDate + '\'';
             
             modifiedWhere = modifiedWhere.replaceAll('= LAST_N_DAYS:\\d+', dateRangeFilter);
             modifiedWhere = modifiedWhere.replaceAll('= TODAY', dateRangeFilter);
@@ -257,6 +256,59 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             return;
         }
 
+        // Check if additional source is Data Cloud object
+        Boolean isDataCloudSource = config.sourceObject.contains('__dlm') || config.sourceObject.startsWith('ssot__');
+        
+        List<SObject> additionalRecs;
+        
+        if (isDataCloudSource) {
+            // Use CDP query for Data Cloud additional sources
+            additionalRecs = queryAdditionalDataCloudSource(config, joinKeys);
+        } else {
+            // Use regular SOQL for Salesforce additional sources
+            additionalRecs = queryAdditionalRegularSource(config, joinKeys);
+        }
+
+        System.debug(LoggingLevel.WARN, 'Fetched additional rows for ' + sourceAlias + ': ' + additionalRecs.size());
+
+        for (SObject addRec : additionalRecs) {
+            String keyValue = String.valueOf(addRec.get(config.joinField));
+            List<SObject> existing = multiData.getAdditionalData(sourceAlias, keyValue);
+            if (existing.isEmpty()) {
+                existing = new List<SObject>();
+            }
+            existing.add(addRec);
+            multiData.addAdditionalData(sourceAlias, keyValue, existing);
+        }
+    }
+
+    private List<SObject> queryAdditionalDataCloudSource(DC_JoinConfig config, Set<String> joinKeys) {
+        String additionalSelectList = String.join(new List<String>(config.sourceFields), ',');
+        if (!config.sourceFields.contains(config.joinField)) {
+            additionalSelectList += ', ' + config.joinField;
+        }
+
+        // Build WHERE clause for CDP
+        String whereClause = config.joinField + ' IN (\'' + String.join(new List<String>(joinKeys), '\', \'') + '\')';
+        if (!String.isBlank(config.whereClause)) {
+            whereClause += ' AND ' + config.whereClause;
+        }
+
+        String sql = 'SELECT ' + additionalSelectList + ' FROM ' + config.sourceObject + 
+                    ' WHERE ' + whereClause;
+
+        System.debug(LoggingLevel.WARN, 'Additional CDP SQL for ' + config.sourceObject + ': ' + sql);
+
+        try {
+            List<Map<String, Object>> mapResults = DC_CdpQueryUtil.executeQuery(sql);
+            return DC_CdpQueryUtil.convertToSObjects(mapResults, 'Account');
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'Error fetching additional CDP data: ' + e.getMessage());
+            return new List<SObject>();
+        }
+    }
+
+    private List<SObject> queryAdditionalRegularSource(DC_JoinConfig config, Set<String> joinKeys) {
         String additionalSelectList = String.join(new List<String>(config.sourceFields), ',');
         if (!config.sourceFields.contains(config.joinField)) {
             additionalSelectList += ', ' + config.joinField;
@@ -272,23 +324,13 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         
         additionalSoql += ' WHERE ' + String.join(additionalPredicates, ' AND ');
 
-        System.debug(LoggingLevel.WARN, 'Additional source SOQL for ' + sourceAlias + ': ' + additionalSoql);
+        System.debug(LoggingLevel.WARN, 'Additional SOQL: ' + additionalSoql);
 
         try {
-            List<SObject> additionalRecs = Database.query(additionalSoql);
-            System.debug(LoggingLevel.WARN, 'Fetched additional rows for ' + sourceAlias + ': ' + additionalRecs.size());
-
-            for (SObject addRec : additionalRecs) {
-                String keyValue = String.valueOf(addRec.get(config.joinField));
-                List<SObject> existing = multiData.getAdditionalData(sourceAlias, keyValue);
-                if (existing.isEmpty()) {
-                    existing = new List<SObject>();
-                }
-                existing.add(addRec);
-                multiData.addAdditionalData(sourceAlias, keyValue, existing);
-            }
+            return Database.query(additionalSoql);
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error fetching additional source data for ' + sourceAlias + ': ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error fetching additional SOQL data: ' + e.getMessage());
+            return new List<SObject>();
         }
     }
 
@@ -310,9 +352,9 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             if (isDataCloudObject) {
                 Integer newOffset = offsetValue + pageSize;
                 
-                // Check if we're approaching the OFFSET limit
-                if (newOffset >= MAX_DATA_CLOUD_OFFSET) {
-                    System.debug(LoggingLevel.WARN, 'Approaching OFFSET limit. Moving to next date chunk.');
+                // CDP has higher limits, but still check for reasonable bounds
+                if (newOffset >= MAX_CDP_OFFSET) {
+                    System.debug(LoggingLevel.WARN, 'Approaching CDP OFFSET limit. Moving to next date chunk.');
                     processNextDateChunk(step, stepName);
                 } else {
                     System.debug(LoggingLevel.WARN, 'Page filled up, enqueuing SAME step again with offset=' + newOffset);

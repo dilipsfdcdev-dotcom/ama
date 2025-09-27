@@ -31,41 +31,23 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
         // Bulk resolve Account by external id
         Set<String> accountKeys = new Set<String>();
         for (SObject src : scope) {
-            String k = (String)src.get('SEAWARE_Agency_ID__c');
+            String k = (String) getFieldValue(src, 'SEAWARE_Agency_ID__c');
             if (!String.isBlank(k)) accountKeys.add(k);
         }
-        Map<String, Id> accountByExt = new Map<String, Id>();
-        if (!accountKeys.isEmpty()) {
-            for (Account a : [
-                SELECT Id, SEAWARE_Agency_ID__c
-                FROM Account
-                WHERE SEAWARE_Agency_ID__c IN :accountKeys
-            ]) {
-                accountByExt.put(a.SEAWARE_Agency_ID__c, a.Id);
-            }
-        }
+        Map<String, Id> accountByExt = bulkLookupByExternalId('Account', 'SEAWARE_Agency_ID__c', accountKeys);
 
         // Bulk resolve Sailing by external id
         Set<String> sailingKeys = new Set<String>();
         for (SObject src : scope) {
-            String k = (String)src.get('Sailing__c');
+            String k = (String) getFieldValue(src, 'Sailing__c');
             if (!String.isBlank(k)) sailingKeys.add(k);
         }
-        Map<String, Id> sailingByExt = new Map<String, Id>();
-        if (!sailingKeys.isEmpty()) {
-            for (Sailing__c s : [
-                SELECT Id, Sailing_Code__c
-                FROM Sailing__c
-                WHERE Sailing_Code__c IN :sailingKeys
-            ]) {
-                sailingByExt.put(s.Sailing_Code__c, s.Id);
-            }
-        }
+        Map<String, Id> sailingByExt = bulkLookupByExternalId('Sailing__c', 'Sailing_Code__c', sailingKeys);
 
         // Bulk resolve Contact (Agent) by external id
         Set<String> agentKeys = new Set<String>();
         for (SObject src : scope) {
-            String k = (String)src.get('Agent_ID__c');
+            String k = (String) getFieldValue(src, 'Agent_ID__c');
             if (!String.isBlank(k)) agentKeys.add(k);
         }
         Map<String, Id> agentByExt = new Map<String, Id>();
@@ -82,12 +64,13 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
         
         for (SObject src : scope) {
             Opportunity opp = new Opportunity();
-            opp.put(OPPORTUNITY_EXTID, (String)src.get(ORDER_BY_SRC));
+            String groupId = (String) getFieldValue(src, ORDER_BY_SRC);
+            setFieldValue(opp, OPPORTUNITY_EXTID, groupId);
             
             for (DC_FieldMap m : DC_Mappings.OPPORTUNITY_MAP) {
                 if (m.tgt == 'AccountId') {
                     // Handle Account lookup
-                    String accountKey = (String)src.get('SEAWARE_Agency_ID__c');
+                    String accountKey = (String) getFieldValue(src, 'SEAWARE_Agency_ID__c');
                     if (!String.isBlank(accountKey)) {
                         Id accountId = accountByExt.get(accountKey);
                         if (accountId != null) {
@@ -96,32 +79,32 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
                     }
                 } else if (m.tgt == 'Sailing__c') {
                     // Handle Sailing lookup
-                    String sailingKey = (String)src.get('Sailing__c');
+                    String sailingKey = (String) getFieldValue(src, 'Sailing__c');
                     if (!String.isBlank(sailingKey)) {
                         Id sailingId = sailingByExt.get(sailingKey);
                         if (sailingId != null) {
-                            opp.put(m.tgt, sailingId);
+                            setFieldValue(opp, m.tgt, sailingId);
                         }
                     }
                 } else if (m.tgt == 'agent_ID__c') {
                     // Handle Agent lookup - store Contact Id in agent_ID__c field
-                    String agentKey = (String)src.get('Agent_ID__c');
+                    String agentKey = (String) getFieldValue(src, 'Agent_ID__c');
                     if (!String.isBlank(agentKey)) {
                         Id agentId = agentByExt.get(agentKey);
                         if (agentId != null) {
-                            opp.put(m.tgt, agentId);
+                            setFieldValue(opp, m.tgt, agentId);
                         }
                     }
                 } else {
-                    Object value = src.get(m.src);
+                    Object value = getFieldValue(src, m.src);
                     if (value != null) {
-                        opp.put(m.tgt, value);
+                        setFieldValue(opp, m.tgt, value);
                     }
                 }
             }
 
             // Set RecordType for Charters Proposal
-            opp.RecordTypeId = getOpportunityRecordTypeId('Charters Proposal');
+            opp.RecordTypeId = getChartersProposalRecordTypeId();
             
             // Set required Opportunity fields
             if (opp.CloseDate == null) {
@@ -133,16 +116,17 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
         return new DC_UpsertBundle(out, OPPORTUNITY_EXTID);
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
-        // no-op
-    }
-
-    private Id getOpportunityRecordTypeId(String recordTypeName) {
+    // Local method to avoid inheritance issues
+    private Id getChartersProposalRecordTypeId() {
         try {
-            return Schema.SObjectType.Opportunity.getRecordTypeInfosByName().get(recordTypeName).getRecordTypeId();
+            return Schema.SObjectType.Opportunity.getRecordTypeInfosByName().get('Charters Proposal').getRecordTypeId();
         } catch (Exception e) {
-            System.debug('RecordType not found: ' + recordTypeName);
+            System.debug('Charters Proposal RecordType not found');
             return null;
         }
+    }
+
+    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+        // no-op
     }
 }

@@ -15,24 +15,22 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     public override Set<String> sourceFields() {
         Set<String> f = new Set<String>();
         
-        // Add only main Individual fields (no relationship fields)
+        // Add only main Individual fields (no relationship fields for CDP)
         for (DC_FieldMap mapping : DC_Mappings.CONTACT_CLIENT_MAP) {
             if (!DC_RelationshipQueryUtil.isRelationshipField(mapping.src)) {
                 f.add(mapping.src);
             }
         }
         
-        // Add order by field if not already included
+        // Add required fields
         f.add(ORDER_BY_SRC);
-        
-        // Add Party ID for contact point queries
         f.add('ssot__PartyId__c');
         f.add('ssot__LastModifiedDate__c');
         
         return f;
     }
 
-    // Remove additional sources - we'll query them separately
+    // No additional sources - we'll query them separately via CDP
     public override Map<String, DC_JoinConfig> getAdditionalSources() {
         return new Map<String, DC_JoinConfig>();
     }
@@ -41,7 +39,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         // Group clients by unified profile (ssot__PartyId__c)
         Map<String, List<SObject>> clientsByParty = new Map<String, List<SObject>>();
         for (SObject src : scope) {
-            String partyId = (String)src.get('ssot__PartyId__c');
+            String partyId = (String) getFieldValue(src, 'ssot__PartyId__c');
             if (!String.isBlank(partyId)) {
                 if (!clientsByParty.containsKey(partyId)) {
                     clientsByParty.put(partyId, new List<SObject>());
@@ -50,12 +48,12 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             }
         }
 
-        // Query contact points for all parties
+        // Query contact points for all parties using CDP
         Set<String> allPartyIds = clientsByParty.keySet();
-        Map<String, String> emailByParty = queryEmailContactPoints(allPartyIds);
-        Map<String, String> phoneByParty = queryPhoneContactPoints(allPartyIds);
-        Map<String, Map<String, Object>> addressByParty = queryAddressContactPoints(allPartyIds);
-        Map<String, Map<String, Object>> passportByParty = queryPassportData(allPartyIds);
+        Map<String, String> emailByParty = queryEmailContactPointsCDP(allPartyIds);
+        Map<String, String> phoneByParty = queryPhoneContactPointsCDP(allPartyIds);
+        Map<String, Map<String, Object>> addressByParty = queryAddressContactPointsCDP(allPartyIds);
+        Map<String, Map<String, Object>> passportByParty = queryPassportDataCDP(allPartyIds);
 
         // Get existing contacts using contact point data for matching
         Map<String, List<Contact>> existingContactsByParty = queryExistingContactsByParty(clientsByParty.keySet(), emailByParty, phoneByParty);
@@ -74,22 +72,22 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return new DC_UpsertBundle(contactsToUpsert, CLIENT_EXTID);
     }
 
-    private Map<String, String> queryEmailContactPoints(Set<String> partyIds) {
+    private Map<String, String> queryEmailContactPointsCDP(Set<String> partyIds) {
         Map<String, String> emailByParty = new Map<String, String>();
         
         if (partyIds.isEmpty()) return emailByParty;
         
         try {
-            String emailQuery = 'SELECT ssot__PartyId__c, ssot__EmailAddress__c ' +
-                               'FROM ssot__ContactPointEmail__dlm ' +
-                               'WHERE ssot__PartyId__c IN :partyIds ' +
-                               'LIMIT 2000';
+            // Build CDP SQL query
+            String sql = 'SELECT ssot__PartyId__c, ssot__EmailAddress__c ' +
+                        'FROM ssot__ContactPointEmail__dlm ' +
+                        'WHERE ssot__PartyId__c IN (\'' + String.join(new List<String>(partyIds), '\', \'') + '\')';
             
-            List<SObject> emailRecords = Database.query(emailQuery);
+            List<Map<String, Object>> emailRecords = DC_CdpQueryUtil.executeQuery(sql);
             
-            for (SObject emailRec : emailRecords) {
-                String partyId = (String)emailRec.get('ssot__PartyId__c');
-                String email = (String)emailRec.get('ssot__EmailAddress__c');
+            for (Map<String, Object> emailRec : emailRecords) {
+                String partyId = (String) emailRec.get('ssot__PartyId__c');
+                String email = (String) emailRec.get('ssot__EmailAddress__c');
                 if (!String.isBlank(partyId) && !String.isBlank(email)) {
                     // Use first email found per party
                     if (!emailByParty.containsKey(partyId)) {
@@ -98,58 +96,55 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                 }
             }
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error querying email contact points: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error querying email contact points via CDP: ' + e.getMessage());
         }
         
         return emailByParty;
     }
 
-    private Map<String, String> queryPhoneContactPoints(Set<String> partyIds) {
+    private Map<String, String> queryPhoneContactPointsCDP(Set<String> partyIds) {
         Map<String, String> phoneByParty = new Map<String, String>();
         
         if (partyIds.isEmpty()) return phoneByParty;
         
         try {
-            String phoneQuery = 'SELECT ssot__PartyId__c, ssot__FormattedE164PhoneNumber__c ' +
-                               'FROM ssot__ContactPointPhone__dlm ' +
-                               'WHERE ssot__PartyId__c IN :partyIds ' +
-                               'LIMIT 2000';
+            String sql = 'SELECT ssot__PartyId__c, ssot__FormattedE164PhoneNumber__c ' +
+                        'FROM ssot__ContactPointPhone__dlm ' +
+                        'WHERE ssot__PartyId__c IN (\'' + String.join(new List<String>(partyIds), '\', \'') + '\')';
             
-            List<SObject> phoneRecords = Database.query(phoneQuery);
+            List<Map<String, Object>> phoneRecords = DC_CdpQueryUtil.executeQuery(sql);
             
-            for (SObject phoneRec : phoneRecords) {
-                String partyId = (String)phoneRec.get('ssot__PartyId__c');
-                String phone = (String)phoneRec.get('ssot__FormattedE164PhoneNumber__c');
+            for (Map<String, Object> phoneRec : phoneRecords) {
+                String partyId = (String) phoneRec.get('ssot__PartyId__c');
+                String phone = (String) phoneRec.get('ssot__FormattedE164PhoneNumber__c');
                 if (!String.isBlank(partyId) && !String.isBlank(phone)) {
-                    // Use first phone found per party
                     if (!phoneByParty.containsKey(partyId)) {
                         phoneByParty.put(partyId, phone);
                     }
                 }
             }
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error querying phone contact points: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error querying phone contact points via CDP: ' + e.getMessage());
         }
         
         return phoneByParty;
     }
 
-    private Map<String, Map<String, Object>> queryAddressContactPoints(Set<String> partyIds) {
+    private Map<String, Map<String, Object>> queryAddressContactPointsCDP(Set<String> partyIds) {
         Map<String, Map<String, Object>> addressByParty = new Map<String, Map<String, Object>>();
         
         if (partyIds.isEmpty()) return addressByParty;
         
         try {
-            String addressQuery = 'SELECT ssot__PartyId__c, ssot__AddressLine1__c, ssot__CityId__c, ' +
-                                 'ssot__StateProvinceId__c, ssot__CountryId__c, Zipcode__c ' +
-                                 'FROM ssot__ContactPointAddress__dlm ' +
-                                 'WHERE ssot__PartyId__c IN :partyIds ' +
-                                 'LIMIT 2000';
+            String sql = 'SELECT ssot__PartyId__c, ssot__AddressLine1__c, ssot__CityId__c, ' +
+                        'ssot__StateProvinceId__c, ssot__CountryId__c, Zipcode__c ' +
+                        'FROM ssot__ContactPointAddress__dlm ' +
+                        'WHERE ssot__PartyId__c IN (\'' + String.join(new List<String>(partyIds), '\', \'') + '\')';
             
-            List<SObject> addressRecords = Database.query(addressQuery);
+            List<Map<String, Object>> addressRecords = DC_CdpQueryUtil.executeQuery(sql);
             
-            for (SObject addressRec : addressRecords) {
-                String partyId = (String)addressRec.get('ssot__PartyId__c');
+            for (Map<String, Object> addressRec : addressRecords) {
+                String partyId = (String) addressRec.get('ssot__PartyId__c');
                 if (!String.isBlank(partyId) && !addressByParty.containsKey(partyId)) {
                     Map<String, Object> address = new Map<String, Object>();
                     address.put('MailingStreet', addressRec.get('ssot__AddressLine1__c'));
@@ -162,40 +157,39 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                 }
             }
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error querying address contact points: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error querying address contact points via CDP: ' + e.getMessage());
         }
         
         return addressByParty;
     }
 
-    private Map<String, Map<String, Object>> queryPassportData(Set<String> partyIds) {
+    private Map<String, Map<String, Object>> queryPassportDataCDP(Set<String> partyIds) {
         Map<String, Map<String, Object>> passportByParty = new Map<String, Map<String, Object>>();
         
         if (partyIds.isEmpty()) return passportByParty;
         
         try {
-            String passportQuery = 'SELECT ssot__PartyId__c, ssot__IdentificationNumber__c, ssot__IssuedAtLocation__c, ' +
-                                  'Issued_Date__c, Expiration_Date__c ' +
-                                  'FROM ssot__PartyIdentification__dlm ' +
-                                  'WHERE ssot__PartyId__c IN :partyIds ' +
-                                  'LIMIT 2000';
+            String sql = 'SELECT ssot__PartyId__c, ssot__IdentificationNumber__c, ssot__IssuedAtLocation__c, ' +
+                        'Issued_Date__c, Expiration_Date__c ' +
+                        'FROM ssot__PartyIdentification__dlm ' +
+                        'WHERE ssot__PartyId__c IN (\'' + String.join(new List<String>(partyIds), '\', \'') + '\')';
             
-            List<SObject> passportRecords = Database.query(passportQuery);
+            List<Map<String, Object>> passportRecords = DC_CdpQueryUtil.executeQuery(sql);
             
-            for (SObject passportRec : passportRecords) {
-                String partyId = (String)passportRec.get('ssot__PartyId__c');
+            for (Map<String, Object> passportRec : passportRecords) {
+                String partyId = (String) passportRec.get('ssot__PartyId__c');
                 if (!String.isBlank(partyId) && !passportByParty.containsKey(partyId)) {
                     Map<String, Object> passport = new Map<String, Object>();
                     passport.put('Passport_Number__c', passportRec.get('ssot__IdentificationNumber__c'));
                     passport.put('Passport_Issue_Country__c', passportRec.get('ssot__IssuedAtLocation__c'));
-                    passport.put('Passport_Issue_Date__c', passportRec.get('Issued_Date__c'));
-                    passport.put('Passport_Expire_Date__c', passportRec.get('Expiration_Date__c'));
+                    passport.put('Passport_Issue_Date__c', convertToDate(passportRec.get('Issued_Date__c')));
+                    passport.put('Passport_Expire_Date__c', convertToDate(passportRec.get('Expiration_Date__c')));
                     
                     passportByParty.put(partyId, passport);
                 }
             }
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error querying passport data: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error querying passport data via CDP: ' + e.getMessage());
         }
         
         return passportByParty;
@@ -299,19 +293,19 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         
         // Set upsert key
         String clientId = getClientIdFromSeawareClient(src);
-        client.put(CLIENT_EXTID, clientId);
+        setFieldValue(client, CLIENT_EXTID, clientId);
 
-        // Set RecordType for Client
-        client.RecordTypeId = getContactRecordTypeId('Client');
+        // Set RecordType for Client - USING LOCAL METHOD TO AVOID INHERITANCE ISSUES
+        client.RecordTypeId = getClientRecordTypeId();
 
-        // Apply direct field mappings
+        // Apply direct field mappings (using helper methods for CDP compatibility)
         for (DC_FieldMap mapping : DC_Mappings.CONTACT_CLIENT_MAP) {
             if (mapping.tgt == 'Client_ID__c') continue;
             
             if (!DC_RelationshipQueryUtil.isRelationshipField(mapping.src)) {
-                Object value = src.get(mapping.src);
+                Object value = getFieldValue(src, mapping.src);
                 if (value != null) {
-                    client.put(mapping.tgt, value);
+                    setFieldValue(client, mapping.tgt, value);
                 }
             }
         }
@@ -328,7 +322,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                                               Map<String, Map<String, Object>> passportByParty) {
         String clientId = getClientIdFromSeawareClient(src);
         if (String.isBlank(existingContact.Client_ID__c)) {
-            existingContact.put(CLIENT_EXTID, clientId);
+            setFieldValue(existingContact, CLIENT_EXTID, clientId);
         }
 
         // Apply field mappings
@@ -336,9 +330,9 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             if (mapping.tgt == 'Client_ID__c') continue;
             
             if (!DC_RelationshipQueryUtil.isRelationshipField(mapping.src)) {
-                Object value = src.get(mapping.src);
+                Object value = getFieldValue(src, mapping.src);
                 if (value != null) {
-                    existingContact.put(mapping.tgt, value);
+                    setFieldValue(existingContact, mapping.tgt, value);
                 }
             }
         }
@@ -381,18 +375,18 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     }
 
     private String getClientIdFromSeawareClient(SObject src) {
-        String clientId = (String)src.get('Client_ID__c');
-        if (String.isBlank(clientId)) clientId = (String)src.get('ssot__Id__c');
-        if (String.isBlank(clientId)) clientId = (String)src.get('ssot__PartyId__c');
+        String clientId = (String) getFieldValue(src, 'Client_ID__c');
+        if (String.isBlank(clientId)) clientId = (String) getFieldValue(src, 'ssot__Id__c');
+        if (String.isBlank(clientId)) clientId = (String) getFieldValue(src, 'ssot__PartyId__c');
         return clientId;
     }
 
     private SObject findMostRecentSeawareClient(List<SObject> clients) {
         SObject mostRecent = clients[0];
-        DateTime mostRecentDate = (DateTime)mostRecent.get('ssot__LastModifiedDate__c');
+        DateTime mostRecentDate = convertToDateTime(getFieldValue(mostRecent, 'ssot__LastModifiedDate__c'));
         
         for (SObject client : clients) {
-            DateTime clientDate = (DateTime)client.get('ssot__LastModifiedDate__c');
+            DateTime clientDate = convertToDateTime(getFieldValue(client, 'ssot__LastModifiedDate__c'));
             if (clientDate != null && (mostRecentDate == null || clientDate > mostRecentDate)) {
                 mostRecent = client;
                 mostRecentDate = clientDate;
@@ -401,16 +395,17 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return mostRecent;
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
-        // no-op
-    }
-
-    private Id getContactRecordTypeId(String recordTypeName) {
+    // LOCAL METHOD TO AVOID INHERITANCE ISSUES
+    private Id getClientRecordTypeId() {
         try {
-            return Schema.SObjectType.Contact.getRecordTypeInfosByName().get(recordTypeName).getRecordTypeId();
+            return Schema.SObjectType.Contact.getRecordTypeInfosByName().get('Client').getRecordTypeId();
         } catch (Exception e) {
-            System.debug('RecordType not found: ' + recordTypeName);
+            System.debug('Client RecordType not found');
             return null;
         }
+    }
+
+    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+        // no-op
     }
 }

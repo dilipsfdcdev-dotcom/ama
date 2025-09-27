@@ -29,24 +29,15 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
         // Bulk resolve Booking by external id
         Set<String> bookingKeys = new Set<String>();
         for (SObject src : scope) {
-            String k = (String)src.get('Booking_ID__c');
+            String k = (String) getFieldValue(src, 'Booking_ID__c');
             if (!String.isBlank(k)) bookingKeys.add(k);
         }
-        Map<String, Id> bookingByExt = new Map<String, Id>();
-        if (!bookingKeys.isEmpty()) {
-            for (Booking__c b : [
-                SELECT Id, Booking_Number__c
-                FROM Booking__c
-                WHERE Booking_Number__c IN :bookingKeys
-            ]) {
-                bookingByExt.put(b.Booking_Number__c, b.Id);
-            }
-        }
+        Map<String, Id> bookingByExt = bulkLookupByExternalId('Booking__c', 'Booking_Number__c', bookingKeys);
 
         // Bulk resolve Contact (Client) by external id
         Set<String> clientKeys = new Set<String>();
         for (SObject src : scope) {
-            String k = (String)src.get('Client_ID__c');
+            String k = (String) getFieldValue(src, 'Client_ID__c');
             if (!String.isBlank(k)) clientKeys.add(k);
         }
         Map<String, Id> clientByExt = new Map<String, Id>();
@@ -63,34 +54,35 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
         
         for (SObject src : scope) {
             SObject reservation = t.newSObject();
-            reservation.put(RESERVATION_EXTID, (String)src.get(ORDER_BY_SRC));
+            String guestId = (String) getFieldValue(src, ORDER_BY_SRC);
+            setFieldValue(reservation, RESERVATION_EXTID, guestId);
             
             for (DC_FieldMap m : DC_Mappings.RESERVATION_MAP) {
                 if (m.tgt == 'BookingID__c') {
                     // Handle Booking lookup
-                    String bookingKey = (String)src.get('Booking_ID__c');
+                    String bookingKey = (String) getFieldValue(src, 'Booking_ID__c');
                     if (!String.isBlank(bookingKey)) {
                         Id bookingId = bookingByExt.get(bookingKey);
                         if (bookingId != null) {
-                            reservation.put(m.tgt, bookingId);
+                            setFieldValue(reservation, m.tgt, bookingId);
                         }
                     }
                 } else if (m.tgt == 'Client_NameID__c') {
                     // Handle Client lookup
-                    String clientKey = (String)src.get('Client_ID__c');
+                    String clientKey = (String) getFieldValue(src, 'Client_ID__c');
                     if (!String.isBlank(clientKey)) {
                         Id clientId = clientByExt.get(clientKey);
                         if (clientId != null) {
-                            reservation.put(m.tgt, clientId);
+                            setFieldValue(reservation, m.tgt, clientId);
                         }
                     }
                 } else {
-                    // FIX: Handle data type conversion safely
-                    Object value = src.get(m.src);
+                    // Handle data type conversion safely
+                    Object value = getFieldValue(src, m.src);
                     if (value != null) {
-                        Object convertedValue = convertDataType(value, m.tgt, reservation);
+                        Object convertedValue = convertDataTypeLocal(value, m.tgt, reservation);
                         if (convertedValue != null) {
-                            reservation.put(m.tgt, convertedValue);
+                            setFieldValue(reservation, m.tgt, convertedValue);
                         }
                     }
                 }
@@ -101,9 +93,9 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
     }
 
     /**
-     * Convert source value to appropriate target field type
+     * Convert source value to appropriate target field type - LOCAL METHOD
      */
-    private Object convertDataType(Object sourceValue, String targetFieldName, SObject targetRecord) {
+    private Object convertDataTypeLocal(Object sourceValue, String targetFieldName, SObject targetRecord) {
         if (sourceValue == null) return null;
         
         try {
@@ -124,16 +116,16 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
             // Convert based on target field type
             switch on targetFieldType {
                 when STRING, TEXTAREA, PICKLIST, MULTIPICKLIST, EMAIL, PHONE, URL {
-                    return convertToString(sourceValue);
+                    return String.valueOf(sourceValue);
                 }
                 when INTEGER {
-                    return convertToInteger(sourceValue);
+                    return convertToIntegerLocal(sourceValue);
                 }
                 when DOUBLE, CURRENCY, PERCENT {
-                    return convertToDecimal(sourceValue);
+                    return convertToDecimalLocal(sourceValue);
                 }
                 when BOOLEAN {
-                    return convertToBoolean(sourceValue);
+                    return convertToBooleanLocal(sourceValue);
                 }
                 when DATE {
                     return convertToDate(sourceValue);
@@ -158,12 +150,7 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
         }
     }
     
-    private String convertToString(Object value) {
-        if (value == null) return null;
-        return String.valueOf(value);
-    }
-    
-    private Integer convertToInteger(Object value) {
+    private Integer convertToIntegerLocal(Object value) {
         if (value == null) return null;
         if (value instanceof Integer) return (Integer)value;
         if (value instanceof Decimal) return ((Decimal)value).intValue();
@@ -178,7 +165,7 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
         return null;
     }
     
-    private Decimal convertToDecimal(Object value) {
+    private Decimal convertToDecimalLocal(Object value) {
         if (value == null) return null;
         if (value instanceof Decimal) return (Decimal)value;
         if (value instanceof Integer) return Decimal.valueOf((Integer)value);
@@ -193,7 +180,7 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
         return null;
     }
     
-    private Boolean convertToBoolean(Object value) {
+    private Boolean convertToBooleanLocal(Object value) {
         if (value == null) return null;
         if (value instanceof Boolean) return (Boolean)value;
         if (value instanceof String) {
@@ -206,36 +193,6 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
         }
         if (value instanceof Decimal) {
             return ((Decimal)value) != 0;
-        }
-        return null;
-    }
-    
-    private Date convertToDate(Object value) {
-        if (value == null) return null;
-        if (value instanceof Date) return (Date)value;
-        if (value instanceof DateTime) return ((DateTime)value).date();
-        if (value instanceof String) {
-            try {
-                return Date.valueOf((String)value);
-            } catch (Exception e) {
-                System.debug('Cannot convert string to date: ' + value);
-                return null;
-            }
-        }
-        return null;
-    }
-    
-    private DateTime convertToDateTime(Object value) {
-        if (value == null) return null;
-        if (value instanceof DateTime) return (DateTime)value;
-        if (value instanceof Date) return DateTime.newInstance((Date)value, Time.newInstance(0, 0, 0, 0));
-        if (value instanceof String) {
-            try {
-                return DateTime.valueOf((String)value);
-            } catch (Exception e) {
-                System.debug('Cannot convert string to datetime: ' + value);
-                return null;
-            }
         }
         return null;
     }

@@ -26,9 +26,14 @@ public with sharing class DC_CommissionStep extends DC_BaseStep implements DC_IW
         List<SObject> out = new List<SObject>();
         for (SObject src : scope) {
             SObject rec = t.newSObject();
-            rec.put(COMMISSION_EXTID, (String)src.get(ORDER_BY_SRC));
+            String agencyId = (String) getFieldValue(src, ORDER_BY_SRC);
+            setFieldValue(rec, COMMISSION_EXTID, agencyId);
+            
             for (DC_FieldMap m : DC_Mappings.COMMISSION_MAP) {
-                rec.put(m.tgt, src.get(m.src));
+                Object value = getFieldValue(src, m.src);
+                if (value != null) {
+                    setFieldValue(rec, m.tgt, value);
+                }
             }
             out.add(rec);
         }

@@ -33,34 +33,30 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
         // Bulk resolve Host_Account__c by Account external id
         Set<String> hostKeys = new Set<String>();
         for (SObject src : scope) {
-            String k = (String)src.get('Parent_ID__c');
+            String k = (String) getFieldValue(src, 'Parent_ID__c');
             if (!String.isBlank(k)) hostKeys.add(k);
         }
-        Map<String, Id> hostByExt = new Map<String, Id>();
-        if (!hostKeys.isEmpty()) {
-            for (Account a : [
-                SELECT Id, SEAWARE_Agency_ID__c
-                FROM Account
-                WHERE SEAWARE_Agency_ID__c IN :hostKeys
-            ]) {
-                hostByExt.put(a.SEAWARE_Agency_ID__c, a.Id);
-            }
-        }
+        
+        Map<String, Id> hostByExt = bulkLookupByExternalId('Account', 'SEAWARE_Agency_ID__c', hostKeys);
 
         for (SObject src : scope) {
             Account acc = new Account();
             // upsert key
-            acc.put(ACCOUNT_EXTID, (String)src.get(ORDER_BY_SRC));
+            String accountId = (String) getFieldValue(src, ORDER_BY_SRC);
+            setFieldValue(acc, ACCOUNT_EXTID, accountId);
 
             for (DC_FieldMap m : DC_Mappings.ACCOUNT_MAP) {
                 if (ACCOUNT_LOOKUPS.contains(m.tgt)) {
-                    String parentKey = (String)src.get('Parent_ID__c');
+                    String parentKey = (String) getFieldValue(src, 'Parent_ID__c');
                     if (!String.isBlank(parentKey)) {
                         Id pid = hostByExt.get(parentKey);
-                        if (pid != null) acc.put(m.tgt, pid);
+                        if (pid != null) setFieldValue(acc, m.tgt, pid);
                     }
                 } else {
-                    acc.put(m.tgt, src.get(m.src));
+                    Object value = getFieldValue(src, m.src);
+                    if (value != null) {
+                        setFieldValue(acc, m.tgt, value);
+                    }
                 }
             }
             out.add(acc);
