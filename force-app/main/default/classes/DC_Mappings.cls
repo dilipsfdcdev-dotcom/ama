@@ -26,12 +26,12 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Parent_ID__c','Host_Account__c')
     };
 
-    // Seaware_Commission_Structure__dlm → Commission_Structure__c
     public static final List<DC_FieldMap> COMMISSION_MAP = new List<DC_FieldMap>{
         new DC_FieldMap('Commission_Africa__c','Africa__c'),
-        //new DC_FieldMap('Agency_Classification_Code__c','Agency_Classification_Code__c'),
-        new DC_FieldMap('Agency_Name__c','Agency_Name__c'),
-        new DC_FieldMap('Agency_ID__c','AgencyID__c'),
+        // Agency_Name__c in DC is just a text field with account name - not used for lookup
+        // Agency_Name__c in Salesforce is Master-Detail to Account - handled separately in step logic
+        // Agency_ID__c is used to lookup the Account by SEAWARE_Agency_ID__c
+        new DC_FieldMap('Agency_ID__c','AgencyID__c'),  // Commission external ID
         new DC_FieldMap('Commission_Air_Fare__c','Air_Fare__c'),
         new DC_FieldMap('Date_From__c','Classification_Date_From__c'),
         new DC_FieldMap('Date_To__c','Classification_Date_To__c'),
@@ -48,7 +48,7 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Commission_Land__c','Land_Program__c'),
         new DC_FieldMap('Commission_Mekong__c','Mekong__c'),
         new DC_FieldMap('Commission_Myanmar__c','Myanmar__c'),
-       //new DC_FieldMap('Commission_Structure_Name__c','Name'),
+        // Commission_Structure_Name__c maps to Name (auto-number) - skip as it's auto-generated
         new DC_FieldMap('Primary_Type__c','Primary_Type__c')
     };
 
