@@ -48,13 +48,34 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         }
     }
     
+    /**
+     * UPDATED: Set field value with automatic type conversion
+     * Uses DC_TypeConverter for proper type handling
+     */
     protected void setFieldValue(SObject record, String fieldName, Object value) {
-        try {
-            if (value != null) {
-                record.put(fieldName, value);
-            }
-        } catch (Exception e) {
-            System.debug('Could not set field ' + fieldName + ': ' + e.getMessage());
+        if (value == null) return;
+        
+        // Use centralized type converter
+        DC_TypeConverter.setFieldWithConversion(record, fieldName, value);
+    }
+    
+    /**
+     * NEW: Apply field mapping with automatic type conversion
+     * This is the recommended way to map fields from Data Cloud to Salesforce
+     */
+    protected void applyFieldMapping(SObject targetRecord, Object sourceRecord, DC_FieldMap mapping) {
+        Object value = getFieldValue(sourceRecord, mapping.src);
+        if (value != null) {
+            setFieldValue(targetRecord, mapping.tgt, value);
+        }
+    }
+    
+    /**
+     * NEW: Apply multiple field mappings at once
+     */
+    protected void applyFieldMappings(SObject targetRecord, Object sourceRecord, List<DC_FieldMap> mappings) {
+        for (DC_FieldMap mapping : mappings) {
+            applyFieldMapping(targetRecord, sourceRecord, mapping);
         }
     }
     
@@ -98,28 +119,9 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         return resultMap;
     }
     
+    // DEPRECATED: Use DC_TypeConverter.convertToDate() instead
     protected Date convertToDate(Object value) {
-        if (value == null) return null;
-        
-        if (value instanceof Date) {
-            return (Date) value;
-        } else if (value instanceof DateTime) {
-            return ((DateTime) value).date();
-        } else if (value instanceof String) {
-            try {
-                String dateStr = (String) value;
-                if (dateStr.contains('T')) {
-                    return DateTime.valueOf(dateStr.replace('T', ' ').substring(0, 19)).date();
-                } else {
-                    return Date.valueOf(dateStr);
-                }
-            } catch (Exception e) {
-                System.debug('Could not convert to date: ' + value);
-                return null;
-            }
-        }
-        
-        return null;
+        return DC_TypeConverter.convertToDate(value);
     }
     
     protected String formatDateForCDP(Date dateValue) {
@@ -129,64 +131,18 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         return dt.formatGmt('yyyy-MM-dd');
     }
     
+    // DEPRECATED: Use DC_TypeConverter.convertToDateTime() instead
     protected DateTime convertToDateTime(Object value) {
-        if (value == null) return null;
-        
-        if (value instanceof DateTime) {
-            return (DateTime) value;
-        } else if (value instanceof Date) {
-            return DateTime.newInstance((Date) value, Time.newInstance(0, 0, 0, 0));
-        } else if (value instanceof String) {
-            try {
-                String dateTimeStr = (String) value;
-                if (dateTimeStr.contains('T')) {
-                    return DateTime.valueOf(dateTimeStr.replace('T', ' ').substring(0, 19));
-                } else {
-                    return DateTime.valueOf(dateTimeStr);
-                }
-            } catch (Exception e) {
-                System.debug('Could not convert to datetime: ' + value);
-                return null;
-            }
-        }
-        
-        return null;
+        return DC_TypeConverter.convertToDateTime(value);
     }
     
+    // DEPRECATED: Use DC_TypeConverter.convertToDecimal() instead
     protected Decimal convertToDecimal(Object value) {
-        if (value == null) return null;
-        
-        if (value instanceof Decimal) {
-            return (Decimal) value;
-        } else if (value instanceof Integer) {
-            return Decimal.valueOf((Integer) value);
-        } else if (value instanceof String) {
-            try {
-                return Decimal.valueOf((String) value);
-            } catch (Exception e) {
-                System.debug('Could not convert to decimal: ' + value);
-                return null;
-            }
-        }
-        
-        return null;
+        return DC_TypeConverter.convertToDecimal(value);
     }
     
+    // DEPRECATED: Use DC_TypeConverter.convertToBoolean() instead
     protected Boolean convertToBoolean(Object value) {
-        if (value == null) return null;
-        
-        if (value instanceof Boolean) {
-            return (Boolean) value;
-        } else if (value instanceof String) {
-            String strValue = ((String) value).toLowerCase();
-            if (strValue == 'true' || strValue == '1' || strValue == 'yes') return true;
-            if (strValue == 'false' || strValue == '0' || strValue == 'no') return false;
-        } else if (value instanceof Integer) {
-            return ((Integer) value) != 0;
-        } else if (value instanceof Decimal) {
-            return ((Decimal) value) != 0;
-        }
-        
-        return null;
+        return DC_TypeConverter.convertToBoolean(value);
     }
 }
