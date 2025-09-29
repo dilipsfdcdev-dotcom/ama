@@ -36,7 +36,9 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     public override DC_UpsertBundle mapScope(Object scopeObj) {
         List<Object> scope = (List<Object>)scopeObj;
         
-        // Group clients by unified profile - CHANGED to List<Object>
+        System.debug(LoggingLevel.WARN, '=== CLIENT STEP START ===');
+        
+        // Group clients by unified profile (Party ID)
         Map<String, List<Object>> clientsByParty = new Map<String, List<Object>>();
         for (Object src : scope) {
             String partyId = (String) getFieldValue(src, 'ssot__PartyId__c');
@@ -54,7 +56,8 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         Map<String, Map<String, Object>> addressByParty = queryAddressContactPointsCDP(allPartyIds);
         Map<String, Map<String, Object>> passportByParty = queryPassportDataCDP(allPartyIds);
 
-        Map<String, List<Contact>> existingContactsByParty = queryExistingContactsByParty(clientsByParty.keySet(), emailByParty, phoneByParty);
+        Map<String, List<Contact>> existingContactsByParty = queryExistingContactsByParty(
+            clientsByParty.keySet(), emailByParty, phoneByParty);
         
         List<SObject> contactsToUpsert = new List<SObject>();
         
@@ -62,16 +65,325 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             List<Object> seawareClients = clientsByParty.get(partyId);
             List<Contact> existingContacts = existingContactsByParty.get(partyId);
             
-            List<Contact> processedContacts = processUnifiedProfile(seawareClients, existingContacts, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
+            System.debug(LoggingLevel.WARN, 'Processing Party ID: ' + partyId);
+            System.debug(LoggingLevel.WARN, '  Seaware Clients: ' + seawareClients.size());
+            System.debug(LoggingLevel.WARN, '  Existing SF Contacts: ' + existingContacts.size());
+            
+            List<Contact> processedContacts = processUnifiedProfile(
+                seawareClients, existingContacts, partyId, 
+                emailByParty, phoneByParty, addressByParty, passportByParty);
+            
             contactsToUpsert.addAll(processedContacts);
         }
 
+        System.debug(LoggingLevel.WARN, 'Total contacts to upsert: ' + contactsToUpsert.size());
+        System.debug(LoggingLevel.WARN, '=== CLIENT STEP END ===');
+        
         return new DC_UpsertBundle(contactsToUpsert, CLIENT_EXTID);
     }
 
+    /**
+     * Process unified profile according to 8 scenarios
+     */
+    private List<Contact> processUnifiedProfile(
+        List<Object> seawareClients, 
+        List<Contact> existingContacts, 
+        String partyId,
+        Map<String, String> emailByParty,
+        Map<String, String> phoneByParty,
+        Map<String, Map<String, Object>> addressByParty,
+        Map<String, Map<String, Object>> passportByParty) {
+        
+        List<Contact> result = new List<Contact>();
+        
+        Integer seawareCount = seawareClients.size();
+        Integer salesforceCount = existingContacts.size();
+        
+        System.debug(LoggingLevel.WARN, '--- Scenario Detection ---');
+        System.debug(LoggingLevel.WARN, 'Seaware: ' + seawareCount + ', Salesforce: ' + salesforceCount);
+        
+        // SCENARIO 1: Only 1 Seaware Client, no Salesforce contacts
+        if (seawareCount == 1 && salesforceCount == 0) {
+            System.debug(LoggingLevel.WARN, 'SCENARIO 1: Create new contact from single Seaware client');
+            result.add(createContactFromSeawareClient(
+                seawareClients[0], partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
+        }
+        
+        // SCENARIO 2: Only Salesforce contacts, no Seaware clients
+        else if (seawareCount == 0 && salesforceCount > 0) {
+            System.debug(LoggingLevel.WARN, 'SCENARIO 2: No Seaware data - nothing to sync');
+            // Do nothing - no Seaware data to sync
+        }
+        
+        // SCENARIO 3: Multiple Seaware Clients, no Salesforce contacts
+        else if (seawareCount > 1 && salesforceCount == 0) {
+            System.debug(LoggingLevel.WARN, 'SCENARIO 3: Create contact for each Seaware client');
+            for (Object seawareClient : seawareClients) {
+                result.add(createContactFromSeawareClient(
+                    seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
+            }
+        }
+        
+        // SCENARIO 4: Multiple Salesforce Contacts, no Seaware clients
+        else if (seawareCount == 0 && salesforceCount > 1) {
+            System.debug(LoggingLevel.WARN, 'SCENARIO 4: No Seaware data - nothing to sync');
+            // Do nothing - no Seaware data to sync
+        }
+        
+        // SCENARIO 5: 1 Salesforce Contact and 1 Seaware Client
+        else if (seawareCount == 1 && salesforceCount == 1) {
+            System.debug(LoggingLevel.WARN, 'SCENARIO 5: Match single SF contact with single Seaware client');
+            result.addAll(handleScenario5(
+                seawareClients[0], existingContacts[0], partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty));
+        }
+        
+        // SCENARIO 6: 1 Salesforce Contact and multiple Seaware Clients
+        else if (seawareCount > 1 && salesforceCount == 1) {
+            System.debug(LoggingLevel.WARN, 'SCENARIO 6: Match single SF contact with multiple Seaware clients');
+            result.addAll(handleScenario6(
+                seawareClients, existingContacts[0], partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty));
+        }
+        
+        // SCENARIO 7: Multiple Salesforce Contacts and 1 Seaware Client
+        else if (seawareCount == 1 && salesforceCount > 1) {
+            System.debug(LoggingLevel.WARN, 'SCENARIO 7: Match single Seaware client with multiple SF contacts');
+            result.addAll(handleScenario7(
+                seawareClients[0], existingContacts, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty));
+        }
+        
+        // SCENARIO 8: Multiple Salesforce Contacts and multiple Seaware Clients
+        else if (seawareCount > 1 && salesforceCount > 1) {
+            System.debug(LoggingLevel.WARN, 'SCENARIO 8: Match multiple SF contacts with multiple Seaware clients');
+            result.addAll(handleScenario8(
+                seawareClients, existingContacts, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty));
+        }
+        
+        System.debug(LoggingLevel.WARN, 'Contacts to process: ' + result.size());
+        return result;
+    }
+
+    /**
+     * SCENARIO 5: 1 SF Contact + 1 Seaware Client
+     */
+    private List<Contact> handleScenario5(
+        Object seawareClient,
+        Contact existingContact,
+        String partyId,
+        Map<String, String> emailByParty,
+        Map<String, String> phoneByParty,
+        Map<String, Map<String, Object>> addressByParty,
+        Map<String, Map<String, Object>> passportByParty) {
+        
+        List<Contact> result = new List<Contact>();
+        String seawareClientId = getClientIdFromSeawareClient(seawareClient);
+        String sfClientId = existingContact.Client_ID__c;
+        
+        // If SF Contact has no Client_ID, update it
+        if (String.isBlank(sfClientId)) {
+            System.debug(LoggingLevel.INFO, 'SF Contact has no Client_ID - updating');
+            updateContactFromSeawareClient(existingContact, seawareClient, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty);
+            result.add(existingContact);
+        }
+        // If Client_IDs match, update
+        else if (sfClientId == seawareClientId) {
+            System.debug(LoggingLevel.INFO, 'Client_IDs match - updating SF contact');
+            updateContactFromSeawareClient(existingContact, seawareClient, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty);
+            result.add(existingContact);
+        }
+        // If Client_IDs don't match, create new
+        else {
+            System.debug(LoggingLevel.INFO, 'Client_IDs differ - creating new contact');
+            result.add(createContactFromSeawareClient(seawareClient, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty));
+        }
+        
+        return result;
+    }
+
+    /**
+     * SCENARIO 6: 1 SF Contact + Multiple Seaware Clients
+     */
+    private List<Contact> handleScenario6(
+        List<Object> seawareClients,
+        Contact existingContact,
+        String partyId,
+        Map<String, String> emailByParty,
+        Map<String, String> phoneByParty,
+        Map<String, Map<String, Object>> addressByParty,
+        Map<String, Map<String, Object>> passportByParty) {
+        
+        List<Contact> result = new List<Contact>();
+        String sfClientId = existingContact.Client_ID__c;
+        
+        Object matchingSeawareClient = null;
+        List<Object> unmatchedSeawareClients = new List<Object>();
+        
+        // Find matching Seaware client
+        for (Object seawareClient : seawareClients) {
+            String seawareClientId = getClientIdFromSeawareClient(seawareClient);
+            if (!String.isBlank(sfClientId) && sfClientId == seawareClientId) {
+                matchingSeawareClient = seawareClient;
+            } else {
+                unmatchedSeawareClients.add(seawareClient);
+            }
+        }
+        
+        // If SF Contact has no Client_ID or has matching Client_ID, update with most recent
+        if (String.isBlank(sfClientId)) {
+            System.debug(LoggingLevel.INFO, 'SF Contact has no Client_ID - updating with most recent');
+            Object mostRecent = findMostRecentSeawareClient(seawareClients);
+            updateContactFromSeawareClient(existingContact, mostRecent, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty);
+            result.add(existingContact);
+            
+            // Create new for all others
+            for (Object seawareClient : seawareClients) {
+                if (seawareClient != mostRecent) {
+                    result.add(createContactFromSeawareClient(seawareClient, partyId,
+                        emailByParty, phoneByParty, addressByParty, passportByParty));
+                }
+            }
+        }
+        else if (matchingSeawareClient != null) {
+            System.debug(LoggingLevel.INFO, 'Found matching Client_ID - updating SF contact');
+            updateContactFromSeawareClient(existingContact, matchingSeawareClient, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty);
+            result.add(existingContact);
+            
+            // Create new for unmatched
+            for (Object seawareClient : unmatchedSeawareClients) {
+                result.add(createContactFromSeawareClient(seawareClient, partyId,
+                    emailByParty, phoneByParty, addressByParty, passportByParty));
+            }
+        }
+        else {
+            System.debug(LoggingLevel.INFO, 'No matching Client_ID - creating new for all Seaware clients');
+            // Create new for all Seaware clients
+            for (Object seawareClient : seawareClients) {
+                result.add(createContactFromSeawareClient(seawareClient, partyId,
+                    emailByParty, phoneByParty, addressByParty, passportByParty));
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * SCENARIO 7: Multiple SF Contacts + 1 Seaware Client
+     */
+    private List<Contact> handleScenario7(
+        Object seawareClient,
+        List<Contact> existingContacts,
+        String partyId,
+        Map<String, String> emailByParty,
+        Map<String, String> phoneByParty,
+        Map<String, Map<String, Object>> addressByParty,
+        Map<String, Map<String, Object>> passportByParty) {
+        
+        List<Contact> result = new List<Contact>();
+        String seawareClientId = getClientIdFromSeawareClient(seawareClient);
+        
+        Contact matchingContact = null;
+        Contact contactWithoutClientId = null;
+        Contact mostRecentContact = existingContacts[0];
+        
+        // Analyze existing contacts
+        for (Contact existingContact : existingContacts) {
+            // Find exact match
+            if (!String.isBlank(existingContact.Client_ID__c) && 
+                existingContact.Client_ID__c == seawareClientId) {
+                matchingContact = existingContact;
+            }
+            
+            // Find contact without Client_ID
+            if (String.isBlank(existingContact.Client_ID__c)) {
+                contactWithoutClientId = existingContact;
+            }
+            
+            // Track most recent
+            if (existingContact.LastModifiedDate > mostRecentContact.LastModifiedDate) {
+                mostRecentContact = existingContact;
+            }
+        }
+        
+        // If exact match found, update it
+        if (matchingContact != null) {
+            System.debug(LoggingLevel.INFO, 'Found exact Client_ID match - updating');
+            updateContactFromSeawareClient(matchingContact, seawareClient, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty);
+            result.add(matchingContact);
+        }
+        // If at least one has no Client_ID, update most recent
+        else if (contactWithoutClientId != null) {
+            System.debug(LoggingLevel.INFO, 'Found contact without Client_ID - updating most recent');
+            updateContactFromSeawareClient(mostRecentContact, seawareClient, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty);
+            result.add(mostRecentContact);
+        }
+        // All have different Client_IDs, create new
+        else {
+            System.debug(LoggingLevel.INFO, 'All SF contacts have different Client_IDs - creating new');
+            result.add(createContactFromSeawareClient(seawareClient, partyId,
+                emailByParty, phoneByParty, addressByParty, passportByParty));
+        }
+        
+        return result;
+    }
+
+    /**
+     * SCENARIO 8: Multiple SF Contacts + Multiple Seaware Clients
+     */
+    private List<Contact> handleScenario8(
+        List<Object> seawareClients,
+        List<Contact> existingContacts,
+        String partyId,
+        Map<String, String> emailByParty,
+        Map<String, String> phoneByParty,
+        Map<String, Map<String, Object>> addressByParty,
+        Map<String, Map<String, Object>> passportByParty) {
+        
+        List<Contact> result = new List<Contact>();
+        
+        // Build map of SF contacts by Client_ID
+        Map<String, Contact> sfContactsByClientId = new Map<String, Contact>();
+        for (Contact existingContact : existingContacts) {
+            if (!String.isBlank(existingContact.Client_ID__c)) {
+                sfContactsByClientId.put(existingContact.Client_ID__c, existingContact);
+            }
+        }
+        
+        // Process each Seaware client
+        for (Object seawareClient : seawareClients) {
+            String seawareClientId = getClientIdFromSeawareClient(seawareClient);
+            
+            // If matching SF contact exists, update it
+            if (sfContactsByClientId.containsKey(seawareClientId)) {
+                System.debug(LoggingLevel.INFO, 'Found matching Client_ID: ' + seawareClientId + ' - updating');
+                Contact matchingContact = sfContactsByClientId.get(seawareClientId);
+                updateContactFromSeawareClient(matchingContact, seawareClient, partyId,
+                    emailByParty, phoneByParty, addressByParty, passportByParty);
+                result.add(matchingContact);
+            }
+            // Otherwise create new
+            else {
+                System.debug(LoggingLevel.INFO, 'No match for Client_ID: ' + seawareClientId + ' - creating new');
+                result.add(createContactFromSeawareClient(seawareClient, partyId,
+                    emailByParty, phoneByParty, addressByParty, passportByParty));
+            }
+        }
+        
+        return result;
+    }
+
+    // Query methods remain the same...
     private Map<String, String> queryEmailContactPointsCDP(Set<String> partyIds) {
         Map<String, String> emailByParty = new Map<String, String>();
-        
         if (partyIds.isEmpty()) return emailByParty;
         
         try {
@@ -91,7 +403,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                 }
             }
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error querying email contact points via CDP: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error querying email: ' + e.getMessage());
         }
         
         return emailByParty;
@@ -99,7 +411,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
 
     private Map<String, String> queryPhoneContactPointsCDP(Set<String> partyIds) {
         Map<String, String> phoneByParty = new Map<String, String>();
-        
         if (partyIds.isEmpty()) return phoneByParty;
         
         try {
@@ -119,7 +430,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                 }
             }
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error querying phone contact points via CDP: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error querying phone: ' + e.getMessage());
         }
         
         return phoneByParty;
@@ -127,7 +438,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
 
     private Map<String, Map<String, Object>> queryAddressContactPointsCDP(Set<String> partyIds) {
         Map<String, Map<String, Object>> addressByParty = new Map<String, Map<String, Object>>();
-        
         if (partyIds.isEmpty()) return addressByParty;
         
         try {
@@ -147,12 +457,11 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                     address.put('MailingState', addressRec.get('ssot__StateProvinceId__c'));
                     address.put('MailingCountry', addressRec.get('ssot__CountryId__c'));
                     address.put('MailingPostalCode', addressRec.get('Zipcode__c'));
-                    
                     addressByParty.put(partyId, address);
                 }
             }
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error querying address contact points via CDP: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error querying address: ' + e.getMessage());
         }
         
         return addressByParty;
@@ -160,7 +469,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
 
     private Map<String, Map<String, Object>> queryPassportDataCDP(Set<String> partyIds) {
         Map<String, Map<String, Object>> passportByParty = new Map<String, Map<String, Object>>();
-        
         if (partyIds.isEmpty()) return passportByParty;
         
         try {
@@ -179,18 +487,21 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                     passport.put('Passport_Issue_Country__c', passportRec.get('ssot__IssuedAtLocation__c'));
                     passport.put('Passport_Issue_Date__c', convertToDate(passportRec.get('Issued_Date__c')));
                     passport.put('Passport_Expire_Date__c', convertToDate(passportRec.get('Expiration_Date__c')));
-                    
                     passportByParty.put(partyId, passport);
                 }
             }
         } catch (Exception e) {
-            System.debug(LoggingLevel.ERROR, 'Error querying passport data via CDP: ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Error querying passport: ' + e.getMessage());
         }
         
         return passportByParty;
     }
 
-    private Map<String, List<Contact>> queryExistingContactsByParty(Set<String> partyIds, Map<String, String> emailToPartyMap, Map<String, String> phoneToPartyMap) {
+    private Map<String, List<Contact>> queryExistingContactsByParty(
+        Set<String> partyIds, 
+        Map<String, String> emailToPartyMap, 
+        Map<String, String> phoneToPartyMap) {
+        
         Map<String, List<Contact>> result = new Map<String, List<Contact>>();
         
         for (String partyId : partyIds) {
@@ -251,37 +562,17 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return result;
     }
 
-    private List<Contact> processUnifiedProfile(List<Object> seawareClients, List<Contact> existingContacts, 
-                                              String partyId, Map<String, String> emailByParty, 
-                                              Map<String, String> phoneByParty, Map<String, Map<String, Object>> addressByParty,
-                                              Map<String, Map<String, Object>> passportByParty) {
-        List<Contact> result = new List<Contact>();
+    private Contact createContactFromSeawareClient(
+        Object src, String partyId, 
+        Map<String, String> emailByParty,
+        Map<String, String> phoneByParty,
+        Map<String, Map<String, Object>> addressByParty,
+        Map<String, Map<String, Object>> passportByParty) {
         
-        Integer seawareCount = seawareClients.size();
-        Integer salesforceCount = existingContacts.size();
-        
-        if (seawareCount > 0 && salesforceCount == 0) {
-            for (Object seawareClient : seawareClients) {
-                result.add(createContactFromSeawareClient(seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
-            }
-        } else if (seawareCount > 0 && salesforceCount > 0) {
-            Object mostRecent = findMostRecentSeawareClient(seawareClients);
-            Contact existingContact = existingContacts[0];
-            updateContactFromSeawareClient(existingContact, mostRecent, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
-            result.add(existingContact);
-        }
-        
-        return result;
-    }
-
-    private Contact createContactFromSeawareClient(Object src, String partyId, Map<String, String> emailByParty, 
-                                                  Map<String, String> phoneByParty, Map<String, Map<String, Object>> addressByParty,
-                                                  Map<String, Map<String, Object>> passportByParty) {
         Contact client = new Contact();
         
         String clientId = getClientIdFromSeawareClient(src);
         setFieldValue(client, CLIENT_EXTID, clientId);
-
         client.RecordTypeId = getClientRecordTypeId();
 
         for (DC_FieldMap mapping : DC_Mappings.CONTACT_CLIENT_MAP) {
@@ -296,14 +587,16 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         }
 
         applyContactPointData(client, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
-
         return client;
     }
 
-    private void updateContactFromSeawareClient(Contact existingContact, Object src, String partyId,
-                                              Map<String, String> emailByParty, Map<String, String> phoneByParty, 
-                                              Map<String, Map<String, Object>> addressByParty,
-                                              Map<String, Map<String, Object>> passportByParty) {
+    private void updateContactFromSeawareClient(
+        Contact existingContact, Object src, String partyId,
+        Map<String, String> emailByParty,
+        Map<String, String> phoneByParty,
+        Map<String, Map<String, Object>> addressByParty,
+        Map<String, Map<String, Object>> passportByParty) {
+        
         String clientId = getClientIdFromSeawareClient(src);
         if (String.isBlank(existingContact.Client_ID__c)) {
             setFieldValue(existingContact, CLIENT_EXTID, clientId);
@@ -323,9 +616,13 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         applyContactPointData(existingContact, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
     }
 
-    private void applyContactPointData(Contact targetContact, String partyId, Map<String, String> emailByParty, 
-                                     Map<String, String> phoneByParty, Map<String, Map<String, Object>> addressByParty,
-                                     Map<String, Map<String, Object>> passportByParty) {
+    private void applyContactPointData(
+        Contact targetContact, String partyId,
+        Map<String, String> emailByParty,
+        Map<String, String> phoneByParty,
+        Map<String, Map<String, Object>> addressByParty,
+        Map<String, Map<String, Object>> passportByParty) {
+        
         if (emailByParty.containsKey(partyId)) {
             targetContact.Email = emailByParty.get(partyId);
         }
