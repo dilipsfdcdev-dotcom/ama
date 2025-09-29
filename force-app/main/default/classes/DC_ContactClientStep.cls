@@ -9,7 +9,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-        // **FIX: Use CDP timestamp function for proper date filtering**
         String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
         return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ' + dateFilter;
     }
@@ -17,14 +16,12 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     public override Set<String> sourceFields() {
         Set<String> f = new Set<String>();
         
-        // Add only main Individual fields (no relationship fields for CDP)
         for (DC_FieldMap mapping : DC_Mappings.CONTACT_CLIENT_MAP) {
             if (!DC_RelationshipQueryUtil.isRelationshipField(mapping.src)) {
                 f.add(mapping.src);
             }
         }
         
-        // Add required fields
         f.add(ORDER_BY_SRC);
         f.add('ssot__PartyId__c');
         f.add('ssot__LastModifiedDate__c');
@@ -32,39 +29,37 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return f;
     }
 
-    // No additional sources - we'll query them separately via CDP
     public override Map<String, DC_JoinConfig> getAdditionalSources() {
         return new Map<String, DC_JoinConfig>();
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
-        // Group clients by unified profile (ssot__PartyId__c)
-        Map<String, List<SObject>> clientsByParty = new Map<String, List<SObject>>();
-        for (SObject src : scope) {
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
+        List<Object> scope = (List<Object>)scopeObj;
+        
+        // Group clients by unified profile - CHANGED to List<Object>
+        Map<String, List<Object>> clientsByParty = new Map<String, List<Object>>();
+        for (Object src : scope) {
             String partyId = (String) getFieldValue(src, 'ssot__PartyId__c');
             if (!String.isBlank(partyId)) {
                 if (!clientsByParty.containsKey(partyId)) {
-                    clientsByParty.put(partyId, new List<SObject>());
+                    clientsByParty.put(partyId, new List<Object>());
                 }
                 clientsByParty.get(partyId).add(src);
             }
         }
 
-        // Query contact points for all parties using CDP with timestamp functions
         Set<String> allPartyIds = clientsByParty.keySet();
         Map<String, String> emailByParty = queryEmailContactPointsCDP(allPartyIds);
         Map<String, String> phoneByParty = queryPhoneContactPointsCDP(allPartyIds);
         Map<String, Map<String, Object>> addressByParty = queryAddressContactPointsCDP(allPartyIds);
         Map<String, Map<String, Object>> passportByParty = queryPassportDataCDP(allPartyIds);
 
-        // Get existing contacts using contact point data for matching
         Map<String, List<Contact>> existingContactsByParty = queryExistingContactsByParty(clientsByParty.keySet(), emailByParty, phoneByParty);
         
         List<SObject> contactsToUpsert = new List<SObject>();
         
-        // Process each unified profile
         for (String partyId : clientsByParty.keySet()) {
-            List<SObject> seawareClients = clientsByParty.get(partyId);
+            List<Object> seawareClients = clientsByParty.get(partyId);
             List<Contact> existingContacts = existingContactsByParty.get(partyId);
             
             List<Contact> processedContacts = processUnifiedProfile(seawareClients, existingContacts, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
@@ -80,7 +75,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         if (partyIds.isEmpty()) return emailByParty;
         
         try {
-            // Build CDP SQL query
             String sql = 'SELECT ssot__PartyId__c, ssot__EmailAddress__c ' +
                         'FROM ssot__ContactPointEmail__dlm ' +
                         'WHERE ssot__PartyId__c IN (\'' + String.join(new List<String>(partyIds), '\', \'') + '\')';
@@ -91,7 +85,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                 String partyId = (String) emailRec.get('ssot__PartyId__c');
                 String email = (String) emailRec.get('ssot__EmailAddress__c');
                 if (!String.isBlank(partyId) && !String.isBlank(email)) {
-                    // Use first email found per party
                     if (!emailByParty.containsKey(partyId)) {
                         emailByParty.put(partyId, email);
                     }
@@ -200,7 +193,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     private Map<String, List<Contact>> queryExistingContactsByParty(Set<String> partyIds, Map<String, String> emailToPartyMap, Map<String, String> phoneToPartyMap) {
         Map<String, List<Contact>> result = new Map<String, List<Contact>>();
         
-        // Initialize map
         for (String partyId : partyIds) {
             result.put(partyId, new List<Contact>());
         }
@@ -230,11 +222,9 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             existingContacts.addAll(phoneMatches);
         }
         
-        // Map contacts back to party IDs
         for (Contact contact : existingContacts) {
             String matchedPartyId = null;
             
-            // Find party ID by email
             if (!String.isBlank(contact.Email)) {
                 for (String partyId : emailToPartyMap.keySet()) {
                     if (emailToPartyMap.get(partyId) == contact.Email) {
@@ -244,7 +234,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                 }
             }
             
-            // Find party ID by phone if not found by email
             if (matchedPartyId == null && !String.isBlank(contact.Phone)) {
                 for (String partyId : phoneToPartyMap.keySet()) {
                     if (phoneToPartyMap.get(partyId) == contact.Phone) {
@@ -262,7 +251,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return result;
     }
 
-    private List<Contact> processUnifiedProfile(List<SObject> seawareClients, List<Contact> existingContacts, 
+    private List<Contact> processUnifiedProfile(List<Object> seawareClients, List<Contact> existingContacts, 
                                               String partyId, Map<String, String> emailByParty, 
                                               Map<String, String> phoneByParty, Map<String, Map<String, Object>> addressByParty,
                                               Map<String, Map<String, Object>> passportByParty) {
@@ -271,16 +260,13 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         Integer seawareCount = seawareClients.size();
         Integer salesforceCount = existingContacts.size();
         
-        // Simplified processing - just create/update contacts without complex scenarios
         if (seawareCount > 0 && salesforceCount == 0) {
-            // Create new contacts for each Seaware client
-            for (SObject seawareClient : seawareClients) {
+            for (Object seawareClient : seawareClients) {
                 result.add(createContactFromSeawareClient(seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
             }
         } else if (seawareCount > 0 && salesforceCount > 0) {
-            // Update existing contact with most recent Seaware data
-            SObject mostRecent = findMostRecentSeawareClient(seawareClients);
-            Contact existingContact = existingContacts[0]; // Use first existing contact
+            Object mostRecent = findMostRecentSeawareClient(seawareClients);
+            Contact existingContact = existingContacts[0];
             updateContactFromSeawareClient(existingContact, mostRecent, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
             result.add(existingContact);
         }
@@ -288,19 +274,16 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return result;
     }
 
-    private Contact createContactFromSeawareClient(SObject src, String partyId, Map<String, String> emailByParty, 
+    private Contact createContactFromSeawareClient(Object src, String partyId, Map<String, String> emailByParty, 
                                                   Map<String, String> phoneByParty, Map<String, Map<String, Object>> addressByParty,
                                                   Map<String, Map<String, Object>> passportByParty) {
         Contact client = new Contact();
         
-        // Set upsert key
         String clientId = getClientIdFromSeawareClient(src);
         setFieldValue(client, CLIENT_EXTID, clientId);
 
-        // Set RecordType for Client - USING LOCAL METHOD TO AVOID INHERITANCE ISSUES
         client.RecordTypeId = getClientRecordTypeId();
 
-        // Apply direct field mappings (using helper methods for CDP compatibility)
         for (DC_FieldMap mapping : DC_Mappings.CONTACT_CLIENT_MAP) {
             if (mapping.tgt == 'Client_ID__c') continue;
             
@@ -312,13 +295,12 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             }
         }
 
-        // Apply contact point data
         applyContactPointData(client, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
 
         return client;
     }
 
-    private void updateContactFromSeawareClient(Contact existingContact, SObject src, String partyId,
+    private void updateContactFromSeawareClient(Contact existingContact, Object src, String partyId,
                                               Map<String, String> emailByParty, Map<String, String> phoneByParty, 
                                               Map<String, Map<String, Object>> addressByParty,
                                               Map<String, Map<String, Object>> passportByParty) {
@@ -327,7 +309,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             setFieldValue(existingContact, CLIENT_EXTID, clientId);
         }
 
-        // Apply field mappings
         for (DC_FieldMap mapping : DC_Mappings.CONTACT_CLIENT_MAP) {
             if (mapping.tgt == 'Client_ID__c') continue;
             
@@ -339,24 +320,20 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             }
         }
 
-        // Apply contact point data
         applyContactPointData(existingContact, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
     }
 
     private void applyContactPointData(Contact targetContact, String partyId, Map<String, String> emailByParty, 
                                      Map<String, String> phoneByParty, Map<String, Map<String, Object>> addressByParty,
                                      Map<String, Map<String, Object>> passportByParty) {
-        // Set email
         if (emailByParty.containsKey(partyId)) {
             targetContact.Email = emailByParty.get(partyId);
         }
         
-        // Set phone
         if (phoneByParty.containsKey(partyId)) {
             targetContact.Phone = phoneByParty.get(partyId);
         }
         
-        // Set address
         if (addressByParty.containsKey(partyId)) {
             Map<String, Object> address = addressByParty.get(partyId);
             if (address.get('MailingStreet') != null) targetContact.MailingStreet = (String)address.get('MailingStreet');
@@ -366,7 +343,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             if (address.get('MailingPostalCode') != null) targetContact.MailingPostalCode = (String)address.get('MailingPostalCode');
         }
         
-        // Set passport data
         if (passportByParty.containsKey(partyId)) {
             Map<String, Object> passport = passportByParty.get(partyId);
             if (passport.get('Passport_Number__c') != null) targetContact.Passport_Number__c = (String)passport.get('Passport_Number__c');
@@ -376,18 +352,18 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         }
     }
 
-    private String getClientIdFromSeawareClient(SObject src) {
+    private String getClientIdFromSeawareClient(Object src) {
         String clientId = (String) getFieldValue(src, 'Client_ID__c');
         if (String.isBlank(clientId)) clientId = (String) getFieldValue(src, 'ssot__Id__c');
         if (String.isBlank(clientId)) clientId = (String) getFieldValue(src, 'ssot__PartyId__c');
         return clientId;
     }
 
-    private SObject findMostRecentSeawareClient(List<SObject> clients) {
-        SObject mostRecent = clients[0];
+    private Object findMostRecentSeawareClient(List<Object> clients) {
+        Object mostRecent = clients[0];
         DateTime mostRecentDate = convertToDateTime(getFieldValue(mostRecent, 'ssot__LastModifiedDate__c'));
         
-        for (SObject client : clients) {
+        for (Object client : clients) {
             DateTime clientDate = convertToDateTime(getFieldValue(client, 'ssot__LastModifiedDate__c'));
             if (clientDate != null && (mostRecentDate == null || clientDate > mostRecentDate)) {
                 mostRecent = client;
@@ -397,7 +373,6 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return mostRecent;
     }
 
-    // LOCAL METHOD TO AVOID INHERITANCE ISSUES
     private Id getClientRecordTypeId() {
         try {
             return Schema.SObjectType.Contact.getRecordTypeInfosByName().get('Client').getRecordTypeId();
@@ -407,7 +382,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         }
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(Object scopeObj, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
         // no-op
     }
 }

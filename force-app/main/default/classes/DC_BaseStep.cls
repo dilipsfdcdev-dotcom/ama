@@ -1,89 +1,77 @@
 public abstract with sharing class DC_BaseStep implements DC_IStep {
     
-    // Default implementation for single-source steps
     public virtual Map<String, DC_JoinConfig> getAdditionalSources() {
         return new Map<String, DC_JoinConfig>();
     }
     
-    // Default implementation calls mapScope for backward compatibility
     public virtual DC_UpsertBundle mapMultiSourceScope(DC_MultiSourceData data) {
         return mapScope(data.mainRecords);
     }
     
-    // Abstract methods that must be implemented by concrete classes
+    // Abstract methods - CHANGED signatures
     public abstract String sourceObjectApi();
     public abstract String orderBySourceField();
     public abstract Set<String> sourceFields();
-    public abstract DC_UpsertBundle mapScope(List<SObject> scope);
-    public abstract void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results);
+    public abstract DC_UpsertBundle mapScope(Object scope);
+    public abstract void afterUpsert(Object scope, DC_UpsertBundle bundle, Database.UpsertResult[] results);
     
-    // Helper method to get first record from additional source
     protected SObject getFirstAdditionalRecord(DC_MultiSourceData data, String sourceAlias, String keyValue) {
         List<SObject> records = data.getAdditionalData(sourceAlias, keyValue);
         return records.isEmpty() ? null : records[0];
     }
     
-    // Helper method to get all records from additional source
     protected List<SObject> getAllAdditionalRecords(DC_MultiSourceData data, String sourceAlias, String keyValue) {
         return data.getAdditionalData(sourceAlias, keyValue);
     }
     
-    // **UPDATED: Helper method to safely get field value from SObject (works with CDP query results)**
-    protected Object getFieldValue(SObject record, String fieldName) {
+    protected Object getFieldValue(Object record, String fieldName) {
+        if (record == null || String.isBlank(fieldName)) {
+            return null;
+        }
+        
         try {
-            // Check if this SObject has CDP data associated with it
-            if (DC_CdpQueryUtil.hasCdpData(record)) {
-                Map<String, Object> cdpData = DC_CdpQueryUtil.getCdpData(record);
-                if (cdpData != null && cdpData.containsKey(fieldName)) {
-                    return cdpData.get(fieldName);
-                }
+            if (record instanceof Map<String, Object>) {
+                Map<String, Object> mapRecord = (Map<String, Object>) record;
+                return mapRecord.get(fieldName);
             }
             
-            // Try regular SObject field access as fallback
-            return record.get(fieldName);
-        } catch (Exception e) {
-            // For other edge cases, try alternative access
-            try {
-                Map<String, Object> recordMap = record.getPopulatedFieldsAsMap();
-                if (recordMap != null && recordMap.containsKey(fieldName)) {
-                    return recordMap.get(fieldName);
-                }
-            } catch (Exception e2) {
-                // Last resort: log and return null
-                System.debug('Could not get field ' + fieldName + ' from record: ' + e2.getMessage());
+            if (record instanceof SObject) {
+                SObject sobjectRecord = (SObject) record;
+                return sobjectRecord.get(fieldName);
             }
+            
+            System.debug(LoggingLevel.WARN, 'Unknown record type: ' + record);
+            return null;
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'Could not get field ' + fieldName + ': ' + e.getMessage());
             return null;
         }
     }
     
-    // Helper method to safely set field value on SObject
     protected void setFieldValue(SObject record, String fieldName, Object value) {
         try {
             if (value != null) {
                 record.put(fieldName, value);
             }
         } catch (Exception e) {
-            System.debug('Could not set field ' + fieldName + ' on ' + record.getSObjectType() + ': ' + e.getMessage());
+            System.debug('Could not set field ' + fieldName + ': ' + e.getMessage());
         }
     }
     
-    // Helper method to determine if this step queries Data Cloud objects
     protected Boolean isDataCloudStep() {
         String sourceObject = sourceObjectApi();
         return sourceObject != null && (sourceObject.contains('__dlm') || sourceObject.startsWith('ssot__'));
     }
     
-    // Helper method to get RecordType ID by name - CORRECT SIGNATURE
     protected Id getRecordTypeId(Schema.SObjectType sObjectType, String recordTypeName) {
         try {
             return sObjectType.getDescribe().getRecordTypeInfosByName().get(recordTypeName).getRecordTypeId();
         } catch (Exception e) {
-            System.debug('RecordType not found: ' + recordTypeName + ' for ' + sObjectType);
+            System.debug('RecordType not found: ' + recordTypeName);
             return null;
         }
     }
     
-    // Helper method for bulk lookup resolution
     protected Map<String, Id> bulkLookupByExternalId(String objectName, String externalIdField, Set<String> externalIds) {
         Map<String, Id> resultMap = new Map<String, Id>();
         
@@ -104,13 +92,12 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
                 }
             }
         } catch (Exception e) {
-            System.debug('Error in bulk lookup for ' + objectName + ': ' + e.getMessage());
+            System.debug('Error in bulk lookup: ' + e.getMessage());
         }
         
         return resultMap;
     }
     
-    // Helper method for date conversion from CDP query results
     protected Date convertToDate(Object value) {
         if (value == null) return null;
         
@@ -121,16 +108,13 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         } else if (value instanceof String) {
             try {
                 String dateStr = (String) value;
-                // Handle various date formats that might come from CDP
                 if (dateStr.contains('T')) {
-                    // ISO format with time
                     return DateTime.valueOf(dateStr.replace('T', ' ').substring(0, 19)).date();
                 } else {
-                    // Simple date format
                     return Date.valueOf(dateStr);
                 }
             } catch (Exception e) {
-                System.debug('Could not convert string to date: ' + value);
+                System.debug('Could not convert to date: ' + value);
                 return null;
             }
         }
@@ -138,7 +122,6 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         return null;
     }
     
-    // Helper method to format date for CDP queries
     protected String formatDateForCDP(Date dateValue) {
         if (dateValue == null) return null;
         
@@ -146,7 +129,6 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         return dt.formatGmt('yyyy-MM-dd');
     }
     
-    // Helper method for datetime conversion from CDP query results
     protected DateTime convertToDateTime(Object value) {
         if (value == null) return null;
         
@@ -157,16 +139,13 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         } else if (value instanceof String) {
             try {
                 String dateTimeStr = (String) value;
-                // Handle various datetime formats that might come from CDP
                 if (dateTimeStr.contains('T')) {
-                    // ISO format
                     return DateTime.valueOf(dateTimeStr.replace('T', ' ').substring(0, 19));
                 } else {
-                    // Try standard format
                     return DateTime.valueOf(dateTimeStr);
                 }
             } catch (Exception e) {
-                System.debug('Could not convert string to datetime: ' + value);
+                System.debug('Could not convert to datetime: ' + value);
                 return null;
             }
         }
@@ -174,7 +153,6 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         return null;
     }
     
-    // Helper method for decimal conversion from CDP query results
     protected Decimal convertToDecimal(Object value) {
         if (value == null) return null;
         
@@ -186,7 +164,7 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
             try {
                 return Decimal.valueOf((String) value);
             } catch (Exception e) {
-                System.debug('Could not convert string to decimal: ' + value);
+                System.debug('Could not convert to decimal: ' + value);
                 return null;
             }
         }
@@ -194,7 +172,6 @@ public abstract with sharing class DC_BaseStep implements DC_IStep {
         return null;
     }
     
-    // Helper method for boolean conversion from CDP query results
     protected Boolean convertToBoolean(Object value) {
         if (value == null) return null;
         

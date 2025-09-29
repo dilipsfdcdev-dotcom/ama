@@ -21,10 +21,11 @@ public with sharing class DC_CommissionStep extends DC_BaseStep implements DC_IW
         return f;
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
+        List<Object> scope = (List<Object>)scopeObj;
         Schema.SObjectType t = Schema.getGlobalDescribe().get(TGT_OBJECT);
         List<SObject> out = new List<SObject>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             SObject rec = t.newSObject();
             String agencyId = (String) getFieldValue(src, ORDER_BY_SRC);
             setFieldValue(rec, COMMISSION_EXTID, agencyId);
@@ -40,7 +41,7 @@ public with sharing class DC_CommissionStep extends DC_BaseStep implements DC_IW
         return new DC_UpsertBundle(out, COMMISSION_EXTID);
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(Object scopeObj, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
         // no-op
     }
 }

@@ -28,12 +28,13 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
         return f;
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
+        List<Object> scope = (List<Object>)scopeObj;
         List<SObject> out = new List<SObject>();
 
         // Bulk resolve Account by external id
         Set<String> accountKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'SEAWARE_Agency_ID__c');
             if (!String.isBlank(k)) accountKeys.add(k);
         }
@@ -41,7 +42,7 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
 
         // Bulk resolve Sailing by external id
         Set<String> sailingKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Sailing__c');
             if (!String.isBlank(k)) sailingKeys.add(k);
         }
@@ -49,7 +50,7 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
 
         // Bulk resolve Contact (Agent) by external id
         Set<String> agentKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Agent_ID__c');
             if (!String.isBlank(k)) agentKeys.add(k);
         }
@@ -65,7 +66,7 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
             }
         }
         
-        for (SObject src : scope) {
+        for (Object src : scope) {
             Opportunity opp = new Opportunity();
             String groupId = (String) getFieldValue(src, ORDER_BY_SRC);
             setFieldValue(opp, OPPORTUNITY_EXTID, groupId);
@@ -129,7 +130,7 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
         }
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(Object scopeObj, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
         // no-op
     }
 }

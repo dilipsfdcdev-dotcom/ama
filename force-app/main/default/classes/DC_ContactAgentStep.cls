@@ -41,12 +41,13 @@ public with sharing class DC_ContactAgentStep extends DC_BaseStep implements DC_
         return new Map<String, DC_JoinConfig>();
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
+        List<Object> scope = (List<Object>)scopeObj;
         List<SObject> out = new List<SObject>();
 
         // Bulk resolve Account by external id for Agency relationship
         Set<String> agencyKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Agency_ID__c');
             if (!String.isBlank(k)) agencyKeys.add(k);
         }
@@ -54,7 +55,7 @@ public with sharing class DC_ContactAgentStep extends DC_BaseStep implements DC_
 
         // Get all Party IDs for contact point queries
         Set<String> partyIds = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String partyId = (String) getFieldValue(src, 'ssot__PartyId__c');
             if (!String.isBlank(partyId)) {
                 partyIds.add(partyId);
@@ -66,7 +67,7 @@ public with sharing class DC_ContactAgentStep extends DC_BaseStep implements DC_
         Map<String, String> phoneByParty = queryPhoneContactPointsCDP(partyIds);
         Map<String, Map<String, Object>> addressByParty = queryAddressContactPointsCDP(partyIds);
 
-        for (SObject src : scope) {
+        for (Object src : scope) {
             Contact agent = new Contact();
             
             // Set upsert key using composite Agent ID logic
@@ -224,7 +225,7 @@ public with sharing class DC_ContactAgentStep extends DC_BaseStep implements DC_
         }
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(Object scopeObj, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
         // no-op
     }
 }

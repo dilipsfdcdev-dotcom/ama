@@ -23,19 +23,20 @@ public with sharing class DC_SailingStep extends DC_BaseStep implements DC_IWher
         return f;
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
+        List<Object> scope = (List<Object>)scopeObj;
         Schema.SObjectType t = Schema.getGlobalDescribe().get(TGT_OBJECT);
         List<SObject> out = new List<SObject>();
 
         // Bulk resolve Ship by external id (using Ship_Code now)
         Set<String> shipKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Ship_ID__c');
             if (!String.isBlank(k)) shipKeys.add(k);
         }
         Map<String, Id> shipByExt = bulkLookupByExternalId('Ship__c', 'Ship_Code__c', shipKeys);
         
-        for (SObject src : scope) {
+        for (Object src : scope) {
             SObject sailing = t.newSObject();
             String sailingCode = (String) getFieldValue(src, ORDER_BY_SRC);
             setFieldValue(sailing, SAILING_EXTID, sailingCode);
@@ -62,7 +63,7 @@ public with sharing class DC_SailingStep extends DC_BaseStep implements DC_IWher
         return new DC_UpsertBundle(out, SAILING_EXTID);
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(Object scopeObj, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
         // no-op
     }
 }

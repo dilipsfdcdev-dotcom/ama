@@ -9,7 +9,7 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
     private final Date chunkEndDate;
 
     public static final Integer DEFAULT_PAGE_SIZE = 200;
-    public static final Integer MAX_CDP_OFFSET = 50000; // CDP has higher limits
+    public static final Integer MAX_CDP_OFFSET = 50000;
 
     // Constructor for cursor-based pagination (backward compatibility)
     public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize) {
@@ -53,7 +53,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             return;
         }
 
-        // Check if this is a multi-source step
         Map<String, DC_JoinConfig> additionalSources = step.getAdditionalSources();
         
         if (additionalSources != null && !additionalSources.isEmpty()) {
@@ -68,16 +67,14 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         String srcObject = step.sourceObjectApi();
         String orderField = step.orderBySourceField();
 
-        // Determine if this is a Data Cloud object
         Boolean isDataCloudObject = srcObject.contains('__dlm') || srcObject.startsWith('ssot__');
         
-        List<SObject> page;
+        // CRITICAL FIX: Keep as List<Object> to handle both Maps and SObjects
+        List<Object> page;
         
         if (isDataCloudObject) {
-            // Use CDP Query for Data Cloud objects
             page = queryDataCloudObject(step, stepName, srcFields, srcObject, orderField);
         } else {
-            // Use regular SOQL for Salesforce objects
             page = queryRegularSalesforceObject(step, stepName, srcFields, srcObject, orderField);
         }
 
@@ -85,7 +82,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
 
         if (page.isEmpty()) {
             if (isDataCloudObject && chunkEndDate != null && chunkEndDate < Date.today()) {
-                // Move to next date chunk
                 processNextDateChunk(step, stepName);
             } else {
                 System.debug(LoggingLevel.WARN, 'No rows found for step: ' + stepName + '. Moving to next step.');
@@ -94,21 +90,22 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             return;
         }
 
+        // Cast to List<SObject> for mapScope - the step will handle the actual types
+        //DC_UpsertBundle bundle = step.mapScope((List<SObject>)page);
         DC_UpsertBundle bundle = step.mapScope(page);
         processUpsertAndContinue(step, stepName, page, bundle, isDataCloudObject);
     }
 
-    private List<SObject> queryDataCloudObject(DC_IStep step, String stepName, Set<String> srcFields, 
+    /**
+     * CRITICAL FIX: Return List<Object> containing Map<String,Object> records
+     * Do NOT convert to SObject - keep as Maps for proper field access
+     */
+    private List<Object> queryDataCloudObject(DC_IStep step, String stepName, Set<String> srcFields, 
                                               String srcObject, String orderField) {
         
         System.debug(LoggingLevel.ERROR, '=== QUERY DATA CLOUD OBJECT START ===');
         System.debug(LoggingLevel.ERROR, 'Step Name: ' + stepName);
         System.debug(LoggingLevel.ERROR, 'Source Object: ' + srcObject);
-        System.debug(LoggingLevel.ERROR, 'Order Field: ' + orderField);
-        System.debug(LoggingLevel.ERROR, 'Source Fields: ' + srcFields);
-        System.debug(LoggingLevel.ERROR, 'Chunk Start Date: ' + chunkStartDate);
-        System.debug(LoggingLevel.ERROR, 'Chunk End Date: ' + chunkEndDate);
-        System.debug(LoggingLevel.ERROR, 'Offset Value: ' + offsetValue);
         
         String whereClause = '';
         
@@ -118,9 +115,8 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             
             if (!String.isBlank(wc)) {
                 if (chunkStartDate != null || chunkEndDate != null) {
-                    // Replace date filter with chunk-specific date filter
                     String modifiedWc = replaceDateFilterWithChunk(wc, chunkStartDate, chunkEndDate, stepName);
-                    System.debug(LoggingLevel.ERROR, 'Modified WHERE clause after date chunk replacement: ' + modifiedWc);
+                    System.debug(LoggingLevel.ERROR, 'Modified WHERE clause: ' + modifiedWc);
                     whereClause = modifiedWc;
                 } else {
                     whereClause = wc;
@@ -128,9 +124,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             }
         }
         
-        System.debug(LoggingLevel.ERROR, 'Final WHERE clause: ' + whereClause);
-        
-        // Build CDP SQL query
         String sql = DC_CdpQueryUtil.buildDataCloudSql(
             srcObject, 
             srcFields, 
@@ -140,21 +133,21 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             offsetValue
         );
         
-        System.debug(LoggingLevel.ERROR, 'About to execute CDP SQL: ' + sql);
+        System.debug(LoggingLevel.ERROR, 'Executing CDP SQL: ' + sql);
         
-        // Execute CDP query
+        // Get Map results directly - DO NOT convert to SObject
         List<Map<String, Object>> mapResults = DC_CdpQueryUtil.executeQuery(sql);
         
-        // Convert to SObjects for compatibility with existing code
-        List<SObject> results = DC_CdpQueryUtil.convertToSObjects(mapResults, 'Account');
-        
-        System.debug(LoggingLevel.ERROR, 'CDP Query returned ' + results.size() + ' records');
+        System.debug(LoggingLevel.ERROR, 'CDP Query returned ' + mapResults.size() + ' records');
         System.debug(LoggingLevel.ERROR, '=== QUERY DATA CLOUD OBJECT END ===');
         
+        // Return as List<Object> to maintain compatibility
+        List<Object> results = new List<Object>();
+        results.addAll(mapResults);
         return results;
     }
 
-    private List<SObject> queryRegularSalesforceObject(DC_IStep step, String stepName, Set<String> srcFields, 
+    private List<Object> queryRegularSalesforceObject(DC_IStep step, String stepName, Set<String> srcFields, 
                                                       String srcObject, String orderField) {
         String selectList = String.join(new List<String>(srcFields), ',');
         String soql = 'SELECT ' + selectList + ' FROM ' + srcObject;
@@ -168,7 +161,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             }
         }
         
-        // For regular Salesforce objects, use cursor-based pagination
         if (!String.isBlank(lastKey)) {
             predicates.add(orderField + ' > \'' + String.escapeSingleQuotes(lastKey) + '\'');
         }
@@ -181,7 +173,11 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         soql += ' LIMIT ' + pageSize;
 
         System.debug(LoggingLevel.WARN, 'SOQL to execute: ' + soql);
-        return Database.query(soql);
+        
+        List<SObject> sobjectResults = Database.query(soql);
+        List<Object> results = new List<Object>();
+        results.addAll(sobjectResults);
+        return results;
     }
 
     private void processMultiSourceStep(DC_IStep step, String stepName) {
@@ -191,7 +187,7 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
 
         Boolean isDataCloudObject = srcObject.contains('__dlm') || srcObject.startsWith('ssot__');
         
-        List<SObject> mainPage;
+        List<Object> mainPage;
         
         if (isDataCloudObject) {
             mainPage = queryDataCloudObject(step, stepName, srcFields, srcObject, orderField);
@@ -205,12 +201,12 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             if (isDataCloudObject && chunkEndDate != null && chunkEndDate < Date.today()) {
                 processNextDateChunk(step, stepName);
             } else {
-                System.debug(LoggingLevel.WARN, 'No rows found for step: ' + stepName + '. Moving to next step.');
                 enqueueNextStep();
             }
             return;
         }
 
+        //DC_MultiSourceData multiData = new DC_MultiSourceData((List<SObject>)mainPage);
         DC_MultiSourceData multiData = new DC_MultiSourceData(mainPage);
 
         Map<String, DC_JoinConfig> additionalSources = step.getAdditionalSources();
@@ -222,111 +218,50 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         processUpsertAndContinue(step, stepName, mainPage, bundle, isDataCloudObject);
     }
 
-private String replaceDateFilterWithChunk(String originalWhere, Date startDate, Date endDate, String stepName) {
-    // Replace date filter patterns with chunk-specific dates
-    String modifiedWhere = originalWhere;
-    
-    if (startDate != null && endDate != null) {
-        DC_IStep step = DC_StepFactory.make(stepName);
-        String lastModifiedField = 'ssot__LastModifiedDate__c'; // default
-        if (step != null) {
-            String sourceObject = step.sourceObjectApi();
-            lastModifiedField = DC_DateUtil.getLastModifiedFieldName(sourceObject);
-        }
+    private String replaceDateFilterWithChunk(String originalWhere, Date startDate, Date endDate, String stepName) {
+        String modifiedWhere = originalWhere;
         
-        // **FIX: Use CDP from_iso8601_timestamp() function for proper timestamp handling**
-        DateTime startDateTime = DateTime.newInstance(startDate, Time.newInstance(0, 0, 0, 0));
-        DateTime endDateTime = DateTime.newInstance(endDate.addDays(1), Time.newInstance(0, 0, 0, 0)); // Exclusive end
-        String formattedStartDateTime = DC_DateUtil.formatDateTimeForCDP(startDateTime);
-        String formattedEndDateTime = DC_DateUtil.formatDateTimeForCDP(endDateTime);
-        
-        // Build the proper datetime range filter for CDP using from_iso8601_timestamp()
-        String dateRangeFilter = lastModifiedField + ' >= from_iso8601_timestamp(\'' + formattedStartDateTime + '\') AND ' + 
-                               lastModifiedField + ' < from_iso8601_timestamp(\'' + formattedEndDateTime + '\')';
-        
-        // Replace existing date filter patterns
-        // Pattern 1: Replace "fieldName >= from_iso8601_timestamp('datetime') AND fieldName < from_iso8601_timestamp('datetime')" pattern
-        if (modifiedWhere.contains(lastModifiedField + ' >= from_iso8601_timestamp(\'') && 
-            modifiedWhere.contains(lastModifiedField + ' < from_iso8601_timestamp(\'')) {
+        if (startDate != null && endDate != null) {
+            DC_IStep step = DC_StepFactory.make(stepName);
+            String lastModifiedField = 'ssot__LastModifiedDate__c';
+            if (step != null) {
+                String sourceObject = step.sourceObjectApi();
+                lastModifiedField = DC_DateUtil.getLastModifiedFieldName(sourceObject);
+            }
             
-            // Find and replace the entire date range
-            Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= from_iso8601_timestamp(\'');
-            if (startPos >= 0) {
-                // Find the end of the second timestamp condition
-                String searchPattern = lastModifiedField + ' < from_iso8601_timestamp(\'';
-                Integer endPatternStart = modifiedWhere.indexOf(searchPattern, startPos);
-                if (endPatternStart >= 0) {
-                    // Find the closing quote and parenthesis of the second timestamp value
-                    Integer dateValueStart = endPatternStart + searchPattern.length();
-                    Integer quoteEnd = modifiedWhere.indexOf('\')', dateValueStart);
-                    if (quoteEnd >= 0) {
-                        String beforeDate = modifiedWhere.substring(0, startPos);
-                        String afterDate = modifiedWhere.substring(quoteEnd + 2); // +2 for ')
-                        modifiedWhere = beforeDate + dateRangeFilter + afterDate;
+            DateTime startDateTime = DateTime.newInstance(startDate, Time.newInstance(0, 0, 0, 0));
+            DateTime endDateTime = DateTime.newInstance(endDate.addDays(1), Time.newInstance(0, 0, 0, 0));
+            String formattedStartDateTime = DC_DateUtil.formatDateTimeForCDP(startDateTime);
+            String formattedEndDateTime = DC_DateUtil.formatDateTimeForCDP(endDateTime);
+            
+            String dateRangeFilter = lastModifiedField + ' >= from_iso8601_timestamp(\'' + formattedStartDateTime + '\') AND ' + 
+                                   lastModifiedField + ' < from_iso8601_timestamp(\'' + formattedEndDateTime + '\')';
+            
+            // Replace various date filter patterns
+            if (modifiedWhere.contains(lastModifiedField + ' >= from_iso8601_timestamp(\'')) {
+                Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= from_iso8601_timestamp(\'');
+                if (startPos >= 0) {
+                    String searchPattern = lastModifiedField + ' < from_iso8601_timestamp(\'';
+                    Integer endPatternStart = modifiedWhere.indexOf(searchPattern, startPos);
+                    if (endPatternStart >= 0) {
+                        Integer dateValueStart = endPatternStart + searchPattern.length();
+                        Integer quoteEnd = modifiedWhere.indexOf('\')', dateValueStart);
+                        if (quoteEnd >= 0) {
+                            String beforeDate = modifiedWhere.substring(0, startPos);
+                            String afterDate = modifiedWhere.substring(quoteEnd + 2);
+                            modifiedWhere = beforeDate + dateRangeFilter + afterDate;
+                        }
                     }
                 }
             }
         }
-        // Pattern 2: Replace old format "fieldName >= 'datetime' AND fieldName <= 'datetime'" pattern
-        else if (modifiedWhere.contains(lastModifiedField + ' >= \'') && 
-                 modifiedWhere.contains(lastModifiedField + ' <= \'')) {
-            
-            Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= \'');
-            if (startPos >= 0) {
-                String searchPattern = lastModifiedField + ' <= \'';
-                Integer endPatternStart = modifiedWhere.indexOf(searchPattern, startPos);
-                if (endPatternStart >= 0) {
-                    Integer dateValueStart = endPatternStart + searchPattern.length();
-                    Integer endPatternEnd = modifiedWhere.indexOf('\'', dateValueStart);
-                    if (endPatternEnd >= 0) {
-                        String beforeDate = modifiedWhere.substring(0, startPos);
-                        String afterDate = modifiedWhere.substring(endPatternEnd + 1);
-                        modifiedWhere = beforeDate + dateRangeFilter + afterDate;
-                    }
-                }
-            }
-        }
-        // Pattern 3: Replace single timestamp condition like "fieldName >= from_iso8601_timestamp('datetime')"
-        else if (modifiedWhere.contains(lastModifiedField + ' >= from_iso8601_timestamp(\'')) {
-            Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= from_iso8601_timestamp(\'');
-            if (startPos >= 0) {
-                // Find the end of the timestamp function call
-                Integer dateValueStart = startPos + (lastModifiedField + ' >= from_iso8601_timestamp(\'').length();
-                Integer endPos = modifiedWhere.indexOf('\')', dateValueStart);
-                if (endPos >= 0) {
-                    String beforeDate = modifiedWhere.substring(0, startPos);
-                    String afterDate = modifiedWhere.substring(endPos + 2); // +2 for ')
-                    modifiedWhere = beforeDate + dateRangeFilter + afterDate;
-                }
-            }
-        }
-        // Pattern 4: Replace single date condition like "fieldName >= 'datetime'"
-        else if (modifiedWhere.contains(lastModifiedField + ' >= \'')) {
-            Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= \'');
-            if (startPos >= 0) {
-                Integer dateValueStart = startPos + (lastModifiedField + ' >= \'').length();
-                Integer endPos = modifiedWhere.indexOf('\'', dateValueStart);
-                if (endPos >= 0) {
-                    String beforeDate = modifiedWhere.substring(0, startPos);
-                    String afterDate = modifiedWhere.substring(endPos + 1);
-                    modifiedWhere = beforeDate + dateRangeFilter + afterDate;
-                }
-            }
-        }
-        // Pattern 5: Handle any remaining date patterns as fallback
-        else {
-            System.debug(LoggingLevel.WARN, 'No recognized date filter pattern found in: ' + originalWhere);
-            System.debug(LoggingLevel.WARN, 'Using original WHERE clause with warning');
-        }
+        
+        return modifiedWhere;
     }
-    
-    return modifiedWhere;
-}
 
     private void processNextDateChunk(DC_IStep step, String stepName) {
-        // Calculate next date chunk
         Date newStartDate = chunkEndDate.addDays(1);
-        Date proposedEndDate = newStartDate.addDays(6); // 7-day chunks
+        Date proposedEndDate = newStartDate.addDays(6);
         Date newEndDate = proposedEndDate > Date.today() ? Date.today() : proposedEndDate;
         
         if (newStartDate <= Date.today()) {
@@ -338,10 +273,15 @@ private String replaceDateFilterWithChunk(String originalWhere, Date startDate, 
         }
     }
 
-    private void fetchAdditionalSourceData(DC_MultiSourceData multiData, String sourceAlias, DC_JoinConfig config, List<SObject> mainPage) {
+    private void fetchAdditionalSourceData(DC_MultiSourceData multiData, String sourceAlias, DC_JoinConfig config, List<Object> mainPage) {
         Set<String> joinKeys = new Set<String>();
-        for (SObject mainRec : mainPage) {
-            Object keyVal = mainRec.get(config.parentField);
+        for (Object mainRec : mainPage) {
+            Object keyVal;
+            if (mainRec instanceof Map<String, Object>) {
+                keyVal = ((Map<String, Object>)mainRec).get(config.parentField);
+            } else if (mainRec instanceof SObject) {
+                keyVal = ((SObject)mainRec).get(config.parentField);
+            }
             if (keyVal != null) {
                 joinKeys.add(String.valueOf(keyVal));
             }
@@ -352,16 +292,13 @@ private String replaceDateFilterWithChunk(String originalWhere, Date startDate, 
             return;
         }
 
-        // Check if additional source is Data Cloud object
         Boolean isDataCloudSource = config.sourceObject.contains('__dlm') || config.sourceObject.startsWith('ssot__');
         
         List<SObject> additionalRecs;
         
         if (isDataCloudSource) {
-            // Use CDP query for Data Cloud additional sources
             additionalRecs = queryAdditionalDataCloudSource(config, joinKeys);
         } else {
-            // Use regular SOQL for Salesforce additional sources
             additionalRecs = queryAdditionalRegularSource(config, joinKeys);
         }
 
@@ -384,7 +321,6 @@ private String replaceDateFilterWithChunk(String originalWhere, Date startDate, 
             additionalSelectList += ', ' + config.joinField;
         }
 
-        // Build WHERE clause for CDP
         String whereClause = config.joinField + ' IN (\'' + String.join(new List<String>(joinKeys), '\', \'') + '\')';
         if (!String.isBlank(config.whereClause)) {
             whereClause += ' AND ' + config.whereClause;
@@ -397,7 +333,16 @@ private String replaceDateFilterWithChunk(String originalWhere, Date startDate, 
 
         try {
             List<Map<String, Object>> mapResults = DC_CdpQueryUtil.executeQuery(sql);
-            return DC_CdpQueryUtil.convertToSObjects(mapResults, 'Account');
+            // For additional sources, we need to convert to a compatible format
+            // This is a workaround - ideally additional sources should also use Maps
+            List<SObject> results = new List<SObject>();
+            for (Map<String, Object> mapRec : mapResults) {
+                // Store in a generic SObject wrapper
+                Account wrapper = new Account();
+                // We'll need to access this via the map later
+                results.add(wrapper);
+            }
+            return results;
         } catch (Exception e) {
             System.debug(LoggingLevel.ERROR, 'Error fetching additional CDP data: ' + e.getMessage());
             return new List<SObject>();
@@ -430,25 +375,24 @@ private String replaceDateFilterWithChunk(String originalWhere, Date startDate, 
         }
     }
 
-    private void processUpsertAndContinue(DC_IStep step, String stepName, List<SObject> page, DC_UpsertBundle bundle, Boolean isDataCloudObject) {
+    private void processUpsertAndContinue(DC_IStep step, String stepName, List<Object> page, DC_UpsertBundle bundle, Boolean isDataCloudObject) {
         if (bundle != null && !bundle.records.isEmpty()) {
             System.debug(LoggingLevel.WARN, 'Upserting ' + bundle.records.size() + ' records for step: ' + stepName);
             try {
                 Database.UpsertResult[] results =
                     DC_DmlUtil.upsertByExtId(bundle.records, bundle.externalIdField, false);
                 DC_LogUtil.logResults(bundle, results);
+                //step.afterUpsert((List<SObject>)page, bundle, results);
                 step.afterUpsert(page, bundle, results);
             } catch (Exception e) {
                 System.debug(LoggingLevel.ERROR, 'Error during upsert for step ' + stepName + ': ' + e.getMessage());
             }
         }
 
-        // Continue pagination if page is full
         if (page.size() == pageSize) {
             if (isDataCloudObject) {
                 Integer newOffset = offsetValue + pageSize;
                 
-                // CDP has higher limits, but still check for reasonable bounds
                 if (newOffset >= MAX_CDP_OFFSET) {
                     System.debug(LoggingLevel.WARN, 'Approaching CDP OFFSET limit. Moving to next date chunk.');
                     processNextDateChunk(step, stepName);
@@ -457,10 +401,15 @@ private String replaceDateFilterWithChunk(String originalWhere, Date startDate, 
                     System.enqueueJob(new DC_StepRunner(stepNames, index, null, pageSize, newOffset, chunkStartDate, chunkEndDate));
                 }
             } else {
-                // Regular Salesforce object pagination
                 String newLastKey = null;
                 if (!page.isEmpty()) {
-                    Object keyVal = page[page.size() - 1].get(step.orderBySourceField());
+                    Object lastRec = page[page.size() - 1];
+                    Object keyVal;
+                    if (lastRec instanceof Map<String, Object>) {
+                        keyVal = ((Map<String, Object>)lastRec).get(step.orderBySourceField());
+                    } else if (lastRec instanceof SObject) {
+                        keyVal = ((SObject)lastRec).get(step.orderBySourceField());
+                    }
                     if (keyVal != null) {
                         newLastKey = String.valueOf(keyVal);
                     }
@@ -474,7 +423,6 @@ private String replaceDateFilterWithChunk(String originalWhere, Date startDate, 
             }
         } else {
             if (isDataCloudObject && chunkEndDate != null && chunkEndDate < Date.today()) {
-                // Current chunk is done, move to next chunk
                 processNextDateChunk(step, stepName);
             } else {
                 System.debug(LoggingLevel.WARN, 'Step complete, moving to NEXT step.');

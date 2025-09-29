@@ -1,14 +1,9 @@
 public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWhere {
 
-    // Source + key
     private static final String SRC_OBJECT   = 'ssot__Account__dlm';
     private static final String ORDER_BY_SRC = 'ssot__Id__c';
-
-    // Target ext-id (change if your org uses a different one)
     private static final String ACCOUNT_EXTID = 'SEAWARE_Agency_ID__c';
     private static final String STEP_NAME = 'Account';
-
-    // Treat these as lookups we try to resolve by Account external id
     private static final Set<String> ACCOUNT_LOOKUPS = new Set<String>{ 'Host_Account__c' };
 
     public override String sourceObjectApi()    { return SRC_OBJECT; }
@@ -28,27 +23,31 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
         return f;
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
+    // CHANGED: Accept Object instead of List<SObject>
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
         System.debug(LoggingLevel.WARN, '=== ACCOUNT STEP START ===');
+        
+        // Convert Object to List<Object>
+        List<Object> scope = (List<Object>)scopeObj;
         System.debug(LoggingLevel.WARN, 'Input scope size: ' + scope.size());
         
-        // **FIX: Deduplicate by external ID first**
-        Map<String, SObject> deduplicatedRecords = new Map<String, SObject>();
+        // Deduplicate by external ID
+        Map<String, Object> deduplicatedRecords = new Map<String, Object>();
         Map<String, DateTime> latestTimestamp = new Map<String, DateTime>();
         
-        for (SObject src : scope) {
-            String accountId = (String) getFieldValue(src, ORDER_BY_SRC);
+        for (Object srcObj : scope) {
+            String accountId = (String) getFieldValue(srcObj, ORDER_BY_SRC);
             if (String.isBlank(accountId)) {
                 System.debug(LoggingLevel.WARN, 'Skipping record with blank external ID');
                 continue;
             }
 
-            DateTime lastModified = convertToDateTime(getFieldValue(src, 'ssot__LastModifiedDate__c'));
+            DateTime lastModified = convertToDateTime(getFieldValue(srcObj, 'ssot__LastModifiedDate__c'));
             if (lastModified == null) lastModified = DateTime.now();
 
             if (!deduplicatedRecords.containsKey(accountId) || 
                 lastModified > latestTimestamp.get(accountId)) {
-                deduplicatedRecords.put(accountId, src);
+                deduplicatedRecords.put(accountId, srcObj);
                 latestTimestamp.put(accountId, lastModified);
             }
         }
@@ -60,37 +59,33 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
 
         List<SObject> out = new List<SObject>();
 
-        // Bulk resolve Host_Account__c by Account external id
+        // Bulk resolve Host_Account__c
         Set<String> hostKeys = new Set<String>();
-        for (SObject src : deduplicatedRecords.values()) {
-            String k = (String) getFieldValue(src, 'Parent_ID__c');
+        for (Object srcObj : deduplicatedRecords.values()) {
+            String k = (String) getFieldValue(srcObj, 'Parent_ID__c');
             if (!String.isBlank(k)) hostKeys.add(k);
         }
         
         Map<String, Id> hostByExt = bulkLookupByExternalId('Account', 'SEAWARE_Agency_ID__c', hostKeys);
 
+        // Process each unique account
         for (String accountId : deduplicatedRecords.keySet()) {
-            SObject src = deduplicatedRecords.get(accountId);
+            Object srcObj = deduplicatedRecords.get(accountId);
             
             Account acc = new Account();
-            // **FIX: Set upsert key FIRST, before applying field mappings**
-            setFieldValue(acc, ACCOUNT_EXTID, accountId);
+            acc.put(ACCOUNT_EXTID, accountId);
 
             for (DC_FieldMap m : DC_Mappings.ACCOUNT_MAP) {
-                // **FIX: Skip the external ID mapping since we already set it above**
-                if (m.tgt == ACCOUNT_EXTID) {
-                    System.debug(LoggingLevel.WARN, 'Skipping external ID mapping to prevent overwrite: ' + m.src + ' → ' + m.tgt);
-                    continue;
-                }
+                if (m.tgt == ACCOUNT_EXTID) continue;
                 
                 if (ACCOUNT_LOOKUPS.contains(m.tgt)) {
-                    String parentKey = (String) getFieldValue(src, 'Parent_ID__c');
+                    String parentKey = (String) getFieldValue(srcObj, 'Parent_ID__c');
                     if (!String.isBlank(parentKey)) {
                         Id pid = hostByExt.get(parentKey);
                         if (pid != null) setFieldValue(acc, m.tgt, pid);
                     }
                 } else {
-                    Object value = getFieldValue(src, m.src);
+                    Object value = getFieldValue(srcObj, m.src);
                     if (value != null) {
                         setFieldValue(acc, m.tgt, value);
                     }
@@ -100,12 +95,12 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
         }
 
         System.debug(LoggingLevel.WARN, 'Final output size: ' + out.size());
-        System.debug(LoggingLevel.WARN, '=== ACCOUNT STEP END ===');
         
         return new DC_UpsertBundle(out, ACCOUNT_EXTID);
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
-       
+    // CHANGED: Accept Object instead of List<SObject>
+    public override void afterUpsert(Object scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+        // no-op
     }
 }

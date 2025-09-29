@@ -23,11 +23,12 @@ public with sharing class DC_ShipStep extends DC_BaseStep implements DC_IWhere {
         return f;
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
+        List<Object> scope = (List<Object>)scopeObj;
         Schema.SObjectType t = Schema.getGlobalDescribe().get(TGT_OBJECT);
         List<SObject> out = new List<SObject>();
         
-        for (SObject src : scope) {
+        for (Object src : scope) {
             SObject ship = t.newSObject();
             // Use Ship_Code as external ID instead of Ship_ID
             String shipCode = (String) getFieldValue(src, 'Ship_Code__c');
@@ -44,7 +45,7 @@ public with sharing class DC_ShipStep extends DC_BaseStep implements DC_IWhere {
         return new DC_UpsertBundle(out, SHIP_EXTID);
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(Object scopeObj, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
         // no-op
     }
 }

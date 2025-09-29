@@ -22,13 +22,14 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
         return f;
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
+        List<Object> scope = (List<Object>)scopeObj;
         Schema.SObjectType t = Schema.getGlobalDescribe().get(TGT_OBJECT);
         List<SObject> out = new List<SObject>();
 
         // Bulk resolve Account by external id
         Set<String> accountKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Account_ID__c');
             if (!String.isBlank(k)) accountKeys.add(k);
         }
@@ -36,7 +37,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
 
         // Bulk resolve Opportunity by external id
         Set<String> oppKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Group_ID__c');
             if (!String.isBlank(k)) oppKeys.add(k);
         }
@@ -44,7 +45,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
 
         // Bulk resolve Ship by external id (using Ship_Code)
         Set<String> shipKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Ship__c');
             if (!String.isBlank(k)) shipKeys.add(k);
         }
@@ -52,7 +53,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
 
         // FIX: Bulk resolve Sailing by external id (using Sailing_Code__c)
         Set<String> sailingKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Sailing_ID__c');
             if (!String.isBlank(k)) sailingKeys.add(k);
         }
@@ -60,7 +61,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
 
         // Bulk resolve Contact (Client) by external id for Primary Passenger
         Set<String> clientKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Primary_Passenger__c');
             if (!String.isBlank(k)) clientKeys.add(k);
         }
@@ -78,7 +79,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
 
         // Bulk resolve Contact (Agent) by external id
         Set<String> agentKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Agent_ID__c');
             if (!String.isBlank(k)) agentKeys.add(k);
         }
@@ -94,7 +95,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
             }
         }
         
-        for (SObject src : scope) {
+        for (Object src : scope) {
             SObject booking = t.newSObject();
             String bookingNumber = (String) getFieldValue(src, ORDER_BY_SRC);
             setFieldValue(booking, BOOKING_EXTID, bookingNumber);
@@ -166,7 +167,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
         return new DC_UpsertBundle(out, BOOKING_EXTID);
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(Object scopeObj, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
         // no-op
     }
 }

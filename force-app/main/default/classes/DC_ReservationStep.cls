@@ -22,13 +22,14 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
         return f;
     }
 
-    public override DC_UpsertBundle mapScope(List<SObject> scope) {
+    public override DC_UpsertBundle mapScope(Object scopeObj) {
+        List<Object> scope = (List<Object>)scopeObj;
         Schema.SObjectType t = Schema.getGlobalDescribe().get(TGT_OBJECT);
         List<SObject> out = new List<SObject>();
 
         // Bulk resolve Booking by external id
         Set<String> bookingKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Booking_ID__c');
             if (!String.isBlank(k)) bookingKeys.add(k);
         }
@@ -36,7 +37,7 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
 
         // Bulk resolve Contact (Client) by external id
         Set<String> clientKeys = new Set<String>();
-        for (SObject src : scope) {
+        for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Client_ID__c');
             if (!String.isBlank(k)) clientKeys.add(k);
         }
@@ -52,7 +53,7 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
             }
         }
         
-        for (SObject src : scope) {
+        for (Object src : scope) {
             SObject reservation = t.newSObject();
             String guestId = (String) getFieldValue(src, ORDER_BY_SRC);
             setFieldValue(reservation, RESERVATION_EXTID, guestId);
@@ -197,7 +198,7 @@ public with sharing class DC_ReservationStep extends DC_BaseStep implements DC_I
         return null;
     }
 
-    public override void afterUpsert(List<SObject> scope, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
+    public override void afterUpsert(Object scopeObj, DC_UpsertBundle bundle, Database.UpsertResult[] results) {
         // no-op
     }
 }
