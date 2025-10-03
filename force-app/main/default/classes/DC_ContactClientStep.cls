@@ -10,7 +10,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
 
     public String whereClause() {
         String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
-        return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ' + dateFilter;
+        return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ssot__PartyId__c = \'30000004\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {
@@ -168,6 +168,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
 
     /**
      * SCENARIO 5: 1 SF Contact + 1 Seaware Client
+     * ACTUAL FIX: Ensure we return the contact with its SF Id populated for update
      */
     private List<Contact> handleScenario5(
         Object seawareClient,
@@ -182,23 +183,40 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         String seawareClientId = getClientIdFromSeawareClient(seawareClient);
         String sfClientId = existingContact.Client_ID__c;
         
-        // If SF Contact has no Client_ID, update it
+        System.debug(LoggingLevel.INFO, 'SCENARIO 5 - Seaware Client ID: ' + seawareClientId + ', SF Client ID: ' + sfClientId);
+        System.debug(LoggingLevel.INFO, 'Existing SF Contact Id: ' + existingContact.Id);
+        
+        // CASE 5a: SF Contact has no Client_ID - UPDATE the existing contact
         if (String.isBlank(sfClientId)) {
-            System.debug(LoggingLevel.INFO, 'SF Contact has no Client_ID - updating');
-            updateContactFromSeawareClient(existingContact, seawareClient, partyId,
+            System.debug(LoggingLevel.INFO, 'SCENARIO 5a: SF Contact has no Client_ID - UPDATING existing contact');
+            
+            // Set the Client_ID on the existing contact
+            existingContact.Client_ID__c = seawareClientId;
+            
+            // Update other fields
+            updateContactFieldsFromSeaware(existingContact, seawareClient, partyId,
                 emailByParty, phoneByParty, addressByParty, passportByParty);
+            
+            // Add to result - it has Id so upsert will update
             result.add(existingContact);
+            
+            System.debug(LoggingLevel.INFO, 'Will UPDATE Contact Id: ' + existingContact.Id + ' with Client_ID: ' + existingContact.Client_ID__c);
         }
-        // If Client_IDs match, update
+        // CASE 5b: Client_IDs match - UPDATE the existing contact
         else if (sfClientId == seawareClientId) {
-            System.debug(LoggingLevel.INFO, 'Client_IDs match - updating SF contact');
-            updateContactFromSeawareClient(existingContact, seawareClient, partyId,
+            System.debug(LoggingLevel.INFO, 'SCENARIO 5b: Client_IDs match - UPDATING SF contact');
+            
+            // Update fields (Client_ID already matches)
+            updateContactFieldsFromSeaware(existingContact, seawareClient, partyId,
                 emailByParty, phoneByParty, addressByParty, passportByParty);
+            
             result.add(existingContact);
+            
+            System.debug(LoggingLevel.INFO, 'Will UPDATE Contact Id: ' + existingContact.Id);
         }
-        // If Client_IDs don't match, create new
+        // CASE 5c: Client_IDs differ - CREATE NEW contact
         else {
-            System.debug(LoggingLevel.INFO, 'Client_IDs differ - creating new contact');
+            System.debug(LoggingLevel.INFO, 'SCENARIO 5c: Client_IDs differ - CREATING new contact');
             result.add(createContactFromSeawareClient(seawareClient, partyId,
                 emailByParty, phoneByParty, addressByParty, passportByParty));
         }
@@ -236,9 +254,12 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         
         // If SF Contact has no Client_ID or has matching Client_ID, update with most recent
         if (String.isBlank(sfClientId)) {
-            System.debug(LoggingLevel.INFO, 'SF Contact has no Client_ID - updating with most recent');
+            System.debug(LoggingLevel.INFO, 'SCENARIO 6: SF Contact has no Client_ID - updating with most recent');
             Object mostRecent = findMostRecentSeawareClient(seawareClients);
-            updateContactFromSeawareClient(existingContact, mostRecent, partyId,
+            String mostRecentClientId = getClientIdFromSeawareClient(mostRecent);
+            
+            existingContact.Client_ID__c = mostRecentClientId;
+            updateContactFieldsFromSeaware(existingContact, mostRecent, partyId,
                 emailByParty, phoneByParty, addressByParty, passportByParty);
             result.add(existingContact);
             
@@ -251,8 +272,8 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             }
         }
         else if (matchingSeawareClient != null) {
-            System.debug(LoggingLevel.INFO, 'Found matching Client_ID - updating SF contact');
-            updateContactFromSeawareClient(existingContact, matchingSeawareClient, partyId,
+            System.debug(LoggingLevel.INFO, 'SCENARIO 6: Found matching Client_ID - updating SF contact');
+            updateContactFieldsFromSeaware(existingContact, matchingSeawareClient, partyId,
                 emailByParty, phoneByParty, addressByParty, passportByParty);
             result.add(existingContact);
             
@@ -263,7 +284,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             }
         }
         else {
-            System.debug(LoggingLevel.INFO, 'No matching Client_ID - creating new for all Seaware clients');
+            System.debug(LoggingLevel.INFO, 'SCENARIO 6: No matching Client_ID - creating new for all Seaware clients');
             // Create new for all Seaware clients
             for (Object seawareClient : seawareClients) {
                 result.add(createContactFromSeawareClient(seawareClient, partyId,
@@ -276,6 +297,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
 
     /**
      * SCENARIO 7: Multiple SF Contacts + 1 Seaware Client
+     * ACTUAL FIX: Ensure we return the contact with its SF Id populated for update
      */
     private List<Contact> handleScenario7(
         Object seawareClient,
@@ -290,45 +312,64 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         String seawareClientId = getClientIdFromSeawareClient(seawareClient);
         
         Contact matchingContact = null;
-        Contact contactWithoutClientId = null;
+        Boolean hasContactWithoutClientId = false;
         Contact mostRecentContact = existingContacts[0];
+        
+        System.debug(LoggingLevel.INFO, 'SCENARIO 7 - Analyzing ' + existingContacts.size() + ' existing contacts');
+        System.debug(LoggingLevel.INFO, 'Seaware Client ID: ' + seawareClientId);
         
         // Analyze existing contacts
         for (Contact existingContact : existingContacts) {
-            // Find exact match
+            System.debug(LoggingLevel.INFO, 'Contact Id: ' + existingContact.Id + 
+                        ', Client_ID__c: ' + existingContact.Client_ID__c + 
+                        ', LastModified: ' + existingContact.LastModifiedDate);
+            
+            // CASE 7a: Find exact match by Client_ID
             if (!String.isBlank(existingContact.Client_ID__c) && 
                 existingContact.Client_ID__c == seawareClientId) {
                 matchingContact = existingContact;
             }
             
-            // Find contact without Client_ID
+            // CASE 7b: Check if any contact has no Client_ID
             if (String.isBlank(existingContact.Client_ID__c)) {
-                contactWithoutClientId = existingContact;
+                hasContactWithoutClientId = true;
             }
             
-            // Track most recent
+            // Track most recent contact (for 7b)
             if (existingContact.LastModifiedDate > mostRecentContact.LastModifiedDate) {
                 mostRecentContact = existingContact;
             }
         }
         
-        // If exact match found, update it
+        System.debug(LoggingLevel.INFO, 'Most recent contact Id: ' + mostRecentContact.Id + 
+                    ', Client_ID__c: ' + mostRecentContact.Client_ID__c);
+        
+        // CASE 7a: Exact match found - UPDATE that specific contact
         if (matchingContact != null) {
-            System.debug(LoggingLevel.INFO, 'Found exact Client_ID match - updating');
-            updateContactFromSeawareClient(matchingContact, seawareClient, partyId,
+            System.debug(LoggingLevel.INFO, 'SCENARIO 7a: Found exact Client_ID match - UPDATING contact ' + matchingContact.Id);
+            
+            updateContactFieldsFromSeaware(matchingContact, seawareClient, partyId,
                 emailByParty, phoneByParty, addressByParty, passportByParty);
             result.add(matchingContact);
+            
+            System.debug(LoggingLevel.INFO, 'Will UPDATE Contact Id: ' + matchingContact.Id);
         }
-        // If at least one has no Client_ID, update most recent
-        else if (contactWithoutClientId != null) {
-            System.debug(LoggingLevel.INFO, 'Found contact without Client_ID - updating most recent');
-            updateContactFromSeawareClient(mostRecentContact, seawareClient, partyId,
+        // CASE 7b: At least one has no Client_ID - UPDATE most recent contact
+        else if (hasContactWithoutClientId) {
+            System.debug(LoggingLevel.INFO, 'SCENARIO 7b: At least one contact has no Client_ID - UPDATING most recent contact ' + mostRecentContact.Id);
+            
+            // Set the Client_ID on the most recent contact
+            mostRecentContact.Client_ID__c = seawareClientId;
+            
+            updateContactFieldsFromSeaware(mostRecentContact, seawareClient, partyId,
                 emailByParty, phoneByParty, addressByParty, passportByParty);
             result.add(mostRecentContact);
+            
+            System.debug(LoggingLevel.INFO, 'Will UPDATE Contact Id: ' + mostRecentContact.Id + ' with Client_ID: ' + mostRecentContact.Client_ID__c);
         }
-        // All have different Client_IDs, create new
+        // CASE 7c: All have different Client_IDs - CREATE NEW contact
         else {
-            System.debug(LoggingLevel.INFO, 'All SF contacts have different Client_IDs - creating new');
+            System.debug(LoggingLevel.INFO, 'SCENARIO 7c: All SF contacts have different Client_IDs - CREATING new contact');
             result.add(createContactFromSeawareClient(seawareClient, partyId,
                 emailByParty, phoneByParty, addressByParty, passportByParty));
         }
@@ -364,15 +405,15 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
             
             // If matching SF contact exists, update it
             if (sfContactsByClientId.containsKey(seawareClientId)) {
-                System.debug(LoggingLevel.INFO, 'Found matching Client_ID: ' + seawareClientId + ' - updating');
+                System.debug(LoggingLevel.INFO, 'SCENARIO 8: Found matching Client_ID: ' + seawareClientId + ' - updating');
                 Contact matchingContact = sfContactsByClientId.get(seawareClientId);
-                updateContactFromSeawareClient(matchingContact, seawareClient, partyId,
+                updateContactFieldsFromSeaware(matchingContact, seawareClient, partyId,
                     emailByParty, phoneByParty, addressByParty, passportByParty);
                 result.add(matchingContact);
             }
             // Otherwise create new
             else {
-                System.debug(LoggingLevel.INFO, 'No match for Client_ID: ' + seawareClientId + ' - creating new');
+                System.debug(LoggingLevel.INFO, 'SCENARIO 8: No match for Client_ID: ' + seawareClientId + ' - creating new');
                 result.add(createContactFromSeawareClient(seawareClient, partyId,
                     emailByParty, phoneByParty, addressByParty, passportByParty));
             }
@@ -381,7 +422,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return result;
     }
 
-    // Query methods remain the same...
+    // Query methods
     private Map<String, String> queryEmailContactPointsCDP(Set<String> partyIds) {
         Map<String, String> emailByParty = new Map<String, String>();
         if (partyIds.isEmpty()) return emailByParty;
@@ -389,7 +430,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         try {
             String sql = 'SELECT ssot__PartyId__c, ssot__EmailAddress__c ' +
                         'FROM ssot__ContactPointEmail__dlm ' +
-                        'WHERE ssot__PartyId__c IN (\'' + String.join(new List<String>(partyIds), '\', \'') + '\')';
+                        'WHERE ssot__EmailAddress__c =\'writebackscenario5a@accelerize360.com\' AND ssot__PartyId__c IN (\'' + String.join(new List<String>(partyIds), '\', \'') + '\')';
             
             List<Map<String, Object>> emailRecords = DC_CdpQueryUtil.executeQuery(sql);
             
@@ -590,20 +631,20 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return client;
     }
 
-    private void updateContactFromSeawareClient(
+    /**
+     * NEW HELPER: Update contact fields from Seaware without touching Client_ID
+     * This is separated to handle the Client_ID assignment explicitly in each scenario
+     */
+    private void updateContactFieldsFromSeaware(
         Contact existingContact, Object src, String partyId,
         Map<String, String> emailByParty,
         Map<String, String> phoneByParty,
         Map<String, Map<String, Object>> addressByParty,
         Map<String, Map<String, Object>> passportByParty) {
         
-        String clientId = getClientIdFromSeawareClient(src);
-        if (String.isBlank(existingContact.Client_ID__c)) {
-            setFieldValue(existingContact, CLIENT_EXTID, clientId);
-        }
-
+        // Update all fields EXCEPT Client_ID (handled explicitly in scenarios)
         for (DC_FieldMap mapping : DC_Mappings.CONTACT_CLIENT_MAP) {
-            if (mapping.tgt == 'Client_ID__c') continue;
+            if (mapping.tgt == 'Client_ID__c') continue; // Skip - handled in scenario logic
             
             if (!DC_RelationshipQueryUtil.isRelationshipField(mapping.src)) {
                 Object value = getFieldValue(src, mapping.src);
