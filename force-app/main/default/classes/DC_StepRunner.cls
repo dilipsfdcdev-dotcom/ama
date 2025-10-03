@@ -375,20 +375,56 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         }
     }
 
+    // LOCATE this method in DC_StepRunner.cls (around line 200)
+    // REPLACE the entire processUpsertAndContinue method with this version:
+
     private void processUpsertAndContinue(DC_IStep step, String stepName, List<Object> page, DC_UpsertBundle bundle, Boolean isDataCloudObject) {
-        if (bundle != null && !bundle.records.isEmpty()) {
-            System.debug(LoggingLevel.WARN, 'Upserting ' + bundle.records.size() + ' records for step: ' + stepName);
+        if (bundle != null && (!bundle.records.isEmpty() || !bundle.recordsToUpdate.isEmpty())) {
+            System.debug(LoggingLevel.WARN, 'Processing records for step: ' + stepName);
+            System.debug(LoggingLevel.WARN, '  Records to INSERT: ' + bundle.records.size());
+            System.debug(LoggingLevel.WARN, '  Records to UPDATE: ' + bundle.recordsToUpdate.size());
+            
             try {
-                Database.UpsertResult[] results =
-                    DC_DmlUtil.upsertByExtId(bundle.records, bundle.externalIdField, false);
-                DC_LogUtil.logResults(bundle, results);
-                //step.afterUpsert((List<SObject>)page, bundle, results);
-                step.afterUpsert(page, bundle, results);
+                List<Database.UpsertResult> allResults = new List<Database.UpsertResult>();
+                
+                // **STEP 1: UPDATE records that have Salesforce Id**
+                if (!bundle.recordsToUpdate.isEmpty()) {
+                    System.debug(LoggingLevel.WARN, 'Updating ' + bundle.recordsToUpdate.size() + ' existing records');
+                    Database.SaveResult[] updateResults = Database.update(bundle.recordsToUpdate, false);
+                    
+                    // Log update results
+                    for (Database.SaveResult sr : updateResults) {
+                        if (sr.isSuccess()) {
+                            System.debug(LoggingLevel.INFO, '[UPDATE SUCCESS] Id: ' + sr.getId());
+                        } else {
+                            for (Database.Error err : sr.getErrors()) {
+                                System.debug(LoggingLevel.ERROR, '[UPDATE FAILED] Id: ' + sr.getId() + 
+                                            ', Error: ' + err.getMessage());
+                            }
+                        }
+                    }
+                }
+                
+                // **STEP 2: INSERT/UPSERT records without Salesforce Id**
+                if (!bundle.records.isEmpty()) {
+                    System.debug(LoggingLevel.WARN, 'Upserting ' + bundle.records.size() + ' new/existing records by external ID');
+                    Database.UpsertResult[] upsertResults = 
+                        DC_DmlUtil.upsertByExtId(bundle.records, bundle.externalIdField, false);
+                    
+                    allResults.addAll(upsertResults);
+                    DC_LogUtil.logResults(bundle, upsertResults);
+                }
+                
+                // Call afterUpsert hook (note: only passing upsert results for now)
+                step.afterUpsert(page, bundle, allResults);
+                
             } catch (Exception e) {
-                System.debug(LoggingLevel.ERROR, 'Error during upsert for step ' + stepName + ': ' + e.getMessage());
+                System.debug(LoggingLevel.ERROR, 'Error during DML for step ' + stepName + ': ' + e.getMessage());
+                System.debug(LoggingLevel.ERROR, 'Stack trace: ' + e.getStackTraceString());
             }
         }
 
+        // Continue with pagination logic (unchanged from original)
         if (page.size() == pageSize) {
             if (isDataCloudObject) {
                 Integer newOffset = offsetValue + pageSize;
