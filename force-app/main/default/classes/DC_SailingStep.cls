@@ -34,7 +34,7 @@ public with sharing class DC_SailingStep extends DC_BaseStep implements DC_IWher
             String k = (String) getFieldValue(src, 'Ship_ID__c');
             if (!String.isBlank(k)) shipKeys.add(k);
         }
-        Map<String, Id> shipByExt = bulkLookupByExternalId('Ship__c', 'Ship_Code__c', shipKeys);
+        Map<String, Id> shipByExt = bulkLookupByExternalId('Ship__c', 'Ship_ID__c', shipKeys);
         
         for (Object src : scope) {
             SObject sailing = t.newSObject();
