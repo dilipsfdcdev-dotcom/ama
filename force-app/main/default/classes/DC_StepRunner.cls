@@ -7,23 +7,30 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
     private final Integer offsetValue;
     private final Date chunkStartDate;
     private final Date chunkEndDate;
+    private final Boolean isSecondPass; // **NEW: Track if this is second pass**
 
     public static final Integer DEFAULT_PAGE_SIZE = 200;
     public static final Integer MAX_CDP_OFFSET = 50000;
 
     // Constructor for cursor-based pagination (backward compatibility)
     public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize) {
-        this(stepNames, index, lastKey, pageSize, 0, null, null);
+        this(stepNames, index, lastKey, pageSize, 0, null, null, false);
     }
 
     // Constructor with offset support
     public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize, Integer offsetValue) {
-        this(stepNames, index, lastKey, pageSize, offsetValue, null, null);
+        this(stepNames, index, lastKey, pageSize, offsetValue, null, null, false);
     }
 
-    // Full constructor with date chunking support
+    // Constructor with date chunking support
     public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize, 
                         Integer offsetValue, Date chunkStartDate, Date chunkEndDate) {
+        this(stepNames, index, lastKey, pageSize, offsetValue, chunkStartDate, chunkEndDate, false);
+    }
+
+    // **NEW: Full constructor with second pass flag**
+    public DC_StepRunner(List<String> stepNames, Integer index, String lastKey, Integer pageSize, 
+                        Integer offsetValue, Date chunkStartDate, Date chunkEndDate, Boolean isSecondPass) {
         this.stepNames = stepNames;
         this.index = index;
         this.lastKey = lastKey;
@@ -32,13 +39,15 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         this.offsetValue = offsetValue != null ? offsetValue : 0;
         this.chunkStartDate = chunkStartDate;
         this.chunkEndDate = chunkEndDate;
+        this.isSecondPass = isSecondPass;
     }
 
     public void execute(QueueableContext qc) {
         System.debug(LoggingLevel.WARN, '=== DC_StepRunner START ===');
         System.debug(LoggingLevel.WARN, 'Step Index: ' + index + ', StepNames: ' + stepNames + 
                     ', lastKey: ' + lastKey + ', offset: ' + offsetValue + 
-                    ', chunkStart: ' + chunkStartDate + ', chunkEnd: ' + chunkEndDate);
+                    ', chunkStart: ' + chunkStartDate + ', chunkEnd: ' + chunkEndDate +
+                    ', isSecondPass: ' + isSecondPass);
 
         if (index == null || index >= stepNames.size()) {
             System.debug(LoggingLevel.WARN, 'No more steps to execute. Exiting.');
@@ -53,12 +62,45 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             return;
         }
 
+        // **NEW: Handle second pass specially**
+        if (isSecondPass) {
+            executeSecondPass(step, stepName);
+            return;
+        }
+
         Map<String, DC_JoinConfig> additionalSources = step.getAdditionalSources();
         
         if (additionalSources != null && !additionalSources.isEmpty()) {
             processMultiSourceStep(step, stepName);
         } else {
             processSingleSourceStep(step, stepName);
+        }
+    }
+
+    /**
+     * **NEW METHOD: Execute second pass for steps that need it**
+     */
+    private void executeSecondPass(DC_IStep step, String stepName) {
+        System.debug(LoggingLevel.WARN, '=== EXECUTING SECOND PASS FOR: ' + stepName + ' ===');
+        
+        try {
+            // Call afterUpsert with empty parameters to trigger second pass logic
+            step.afterUpsert(
+                new List<Object>(), 
+                new DC_UpsertBundle(new List<SObject>(), ''), 
+                new Database.UpsertResult[0]
+            );
+            
+            System.debug(LoggingLevel.WARN, 'Second pass completed successfully for: ' + stepName);
+            
+            // After second pass completes, move to next step
+            enqueueNextStep();
+            
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'Error in second pass for ' + stepName + ': ' + e.getMessage());
+            System.debug(LoggingLevel.ERROR, 'Stack trace: ' + e.getStackTraceString());
+            // Still move to next step even if second pass fails
+            enqueueNextStep();
         }
     }
 
@@ -69,7 +111,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
 
         Boolean isDataCloudObject = srcObject.contains('__dlm') || srcObject.startsWith('ssot__');
         
-        // CRITICAL FIX: Keep as List<Object> to handle both Maps and SObjects
         List<Object> page;
         
         if (isDataCloudObject) {
@@ -90,16 +131,10 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             return;
         }
 
-        // Cast to List<SObject> for mapScope - the step will handle the actual types
-        //DC_UpsertBundle bundle = step.mapScope((List<SObject>)page);
         DC_UpsertBundle bundle = step.mapScope(page);
         processUpsertAndContinue(step, stepName, page, bundle, isDataCloudObject);
     }
 
-    /**
-     * CRITICAL FIX: Return List<Object> containing Map<String,Object> records
-     * Do NOT convert to SObject - keep as Maps for proper field access
-     */
     private List<Object> queryDataCloudObject(DC_IStep step, String stepName, Set<String> srcFields, 
                                               String srcObject, String orderField) {
         
@@ -135,13 +170,11 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         
         System.debug(LoggingLevel.ERROR, 'Executing CDP SQL: ' + sql);
         
-        // Get Map results directly - DO NOT convert to SObject
         List<Map<String, Object>> mapResults = DC_CdpQueryUtil.executeQuery(sql);
         
         System.debug(LoggingLevel.ERROR, 'CDP Query returned ' + mapResults.size() + ' records');
         System.debug(LoggingLevel.ERROR, '=== QUERY DATA CLOUD OBJECT END ===');
         
-        // Return as List<Object> to maintain compatibility
         List<Object> results = new List<Object>();
         results.addAll(mapResults);
         return results;
@@ -206,7 +239,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             return;
         }
 
-        //DC_MultiSourceData multiData = new DC_MultiSourceData((List<SObject>)mainPage);
         DC_MultiSourceData multiData = new DC_MultiSourceData(mainPage);
 
         Map<String, DC_JoinConfig> additionalSources = step.getAdditionalSources();
@@ -237,7 +269,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             String dateRangeFilter = lastModifiedField + ' >= from_iso8601_timestamp(\'' + formattedStartDateTime + '\') AND ' + 
                                    lastModifiedField + ' < from_iso8601_timestamp(\'' + formattedEndDateTime + '\')';
             
-            // Replace various date filter patterns
             if (modifiedWhere.contains(lastModifiedField + ' >= from_iso8601_timestamp(\'')) {
                 Integer startPos = modifiedWhere.indexOf(lastModifiedField + ' >= from_iso8601_timestamp(\'');
                 if (startPos >= 0) {
@@ -266,7 +297,7 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         
         if (newStartDate <= Date.today()) {
             System.debug(LoggingLevel.WARN, 'Moving to next date chunk: ' + newStartDate + ' to ' + newEndDate);
-            System.enqueueJob(new DC_StepRunner(stepNames, index, null, pageSize, 0, newStartDate, newEndDate));
+            System.enqueueJob(new DC_StepRunner(stepNames, index, null, pageSize, 0, newStartDate, newEndDate, false));
         } else {
             System.debug(LoggingLevel.WARN, 'All date chunks processed. Moving to next step.');
             enqueueNextStep();
@@ -333,13 +364,9 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
 
         try {
             List<Map<String, Object>> mapResults = DC_CdpQueryUtil.executeQuery(sql);
-            // For additional sources, we need to convert to a compatible format
-            // This is a workaround - ideally additional sources should also use Maps
             List<SObject> results = new List<SObject>();
             for (Map<String, Object> mapRec : mapResults) {
-                // Store in a generic SObject wrapper
                 Account wrapper = new Account();
-                // We'll need to access this via the map later
                 results.add(wrapper);
             }
             return results;
@@ -375,9 +402,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         }
     }
 
-    // LOCATE this method in DC_StepRunner.cls (around line 200)
-    // REPLACE the entire processUpsertAndContinue method with this version:
-
     private void processUpsertAndContinue(DC_IStep step, String stepName, List<Object> page, DC_UpsertBundle bundle, Boolean isDataCloudObject) {
         if (bundle != null && (!bundle.records.isEmpty() || !bundle.recordsToUpdate.isEmpty())) {
             System.debug(LoggingLevel.WARN, 'Processing records for step: ' + stepName);
@@ -387,12 +411,11 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             try {
                 List<Database.UpsertResult> allResults = new List<Database.UpsertResult>();
                 
-                // **STEP 1: UPDATE records that have Salesforce Id**
+                // UPDATE records that have Salesforce Id
                 if (!bundle.recordsToUpdate.isEmpty()) {
                     System.debug(LoggingLevel.WARN, 'Updating ' + bundle.recordsToUpdate.size() + ' existing records');
                     Database.SaveResult[] updateResults = Database.update(bundle.recordsToUpdate, false);
                     
-                    // Log update results
                     for (Database.SaveResult sr : updateResults) {
                         if (sr.isSuccess()) {
                             System.debug(LoggingLevel.INFO, '[UPDATE SUCCESS] Id: ' + sr.getId());
@@ -405,7 +428,7 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                     }
                 }
                 
-                // **STEP 2: INSERT/UPSERT records without Salesforce Id**
+                // INSERT/UPSERT records without Salesforce Id
                 if (!bundle.records.isEmpty()) {
                     System.debug(LoggingLevel.WARN, 'Upserting ' + bundle.records.size() + ' new/existing records by external ID');
                     Database.UpsertResult[] upsertResults = 
@@ -415,7 +438,6 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                     DC_LogUtil.logResults(bundle, upsertResults);
                 }
                 
-                // Call afterUpsert hook (note: only passing upsert results for now)
                 step.afterUpsert(page, bundle, allResults);
                 
             } catch (Exception e) {
@@ -424,7 +446,7 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
             }
         }
 
-        // Continue with pagination logic (unchanged from original)
+        // Continue with pagination logic
         if (page.size() == pageSize) {
             if (isDataCloudObject) {
                 Integer newOffset = offsetValue + pageSize;
@@ -434,7 +456,7 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                     processNextDateChunk(step, stepName);
                 } else {
                     System.debug(LoggingLevel.WARN, 'Page filled up, enqueuing SAME step again with offset=' + newOffset);
-                    System.enqueueJob(new DC_StepRunner(stepNames, index, null, pageSize, newOffset, chunkStartDate, chunkEndDate));
+                    System.enqueueJob(new DC_StepRunner(stepNames, index, null, pageSize, newOffset, chunkStartDate, chunkEndDate, false));
                 }
             } else {
                 String newLastKey = null;
@@ -452,7 +474,7 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                 }
                 if (!String.isBlank(newLastKey)) {
                     System.debug(LoggingLevel.WARN, 'Page filled up, enqueuing SAME step again with lastKey=' + newLastKey);
-                    System.enqueueJob(new DC_StepRunner(stepNames, index, newLastKey, pageSize, 0, null, null));
+                    System.enqueueJob(new DC_StepRunner(stepNames, index, newLastKey, pageSize, 0, null, null, false));
                 } else {
                     enqueueNextStep();
                 }
@@ -467,9 +489,33 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
         }
     }
 
+    /**
+     * **UPDATED: Modified to check if second pass is needed before moving to next step**
+     */
     private void enqueueNextStep() {
         Integer next = (index == null) ? null : index + 1;
         System.debug(LoggingLevel.WARN, 'enqueueNextStep called. Next index: ' + next + ', Total steps: ' + stepNames.size());
+        
+        // **NEW: Check if current step needs a second pass**
+        if (!isSecondPass && index != null && index < stepNames.size()) {
+            String currentStepName = stepNames[index];
+            if (needsSecondPass(currentStepName)) {
+                System.debug(LoggingLevel.WARN, 'Step ' + currentStepName + ' requires second pass. Enqueuing second pass job.');
+                System.enqueueJob(new DC_StepRunner(
+                    stepNames,
+                    index, // **SAME index - run same step again**
+                    null,
+                    (DC_Debug.ENABLE && DC_Debug.MAX_ROWS > 0) ? DC_Debug.MAX_ROWS : DEFAULT_PAGE_SIZE,
+                    0,
+                    null,
+                    null,
+                    true // **isSecondPass = true**
+                ));
+                return; // **Don't move to next step yet**
+            }
+        }
+        
+        // Move to next step
         if (next != null && next < stepNames.size()) {
             System.debug(LoggingLevel.WARN, 'Enqueuing StepStarter for step index ' + next + ' (' + stepNames[next] + ')');
             System.enqueueJob(new DC_Orchestrator.StepStarter(
@@ -478,7 +524,30 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                 (DC_Debug.ENABLE && DC_Debug.MAX_ROWS > 0) ? DC_Debug.MAX_ROWS : DEFAULT_PAGE_SIZE
             ));
         } else {
-            System.debug(LoggingLevel.WARN, 'No further steps available to enqueue.');
+            System.debug(LoggingLevel.WARN, 'No further steps available to enqueue. ALL STEPS COMPLETE.');
         }
+    }
+
+    /**
+     * **NEW METHOD: Determine if a step needs a second pass**
+     */
+    private Boolean needsSecondPass(String stepName) {
+        try {
+            List<DataSync_ObjectOrder__mdt> config = [
+                SELECT Run_Second_Pass__c
+                FROM DataSync_ObjectOrder__mdt
+                WHERE StepName__c = :stepName
+                AND Active__c = true
+                LIMIT 1
+            ];
+            
+            if (!config.isEmpty() && config[0].Run_Second_Pass__c != null) {
+                return config[0].Run_Second_Pass__c;
+            }
+        } catch (Exception e) {
+            System.debug('Could not read Run_Second_Pass__c from metadata: ' + e.getMessage());
+        }
+        
+        return false; // Default to no second pass
     }
 }

@@ -8,7 +8,6 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Zip_Code__c','BillingPostalCode'),
         new DC_FieldMap('State_Code__c','BillingState'),
         new DC_FieldMap('Address_Line1__c','BillingStreet'),
-       // new DC_FieldMap('Classification_Code__c','Classification_Code__c'),
         new DC_FieldMap('CLIA__c','CLIA__c'),
         new DC_FieldMap('Code__c','Code__c'),
         new DC_FieldMap('Currency__c','Currency__c'),
@@ -23,7 +22,8 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('ssot__Id__c','SEAWARE_Agency_ID__c'),
         new DC_FieldMap('Secondary_Account_Name__c','Secondary_Account_Name__c'),
         new DC_FieldMap('Status__c','Status__c'),
-        new DC_FieldMap('Parent_ID__c','Host_Account__c')
+        new DC_FieldMap('Parent_ID__c','Host_Account__c'),
+        new DC_FieldMap('Parent_ID__c','ParentId')
     };
 
     public static final List<DC_FieldMap> COMMISSION_MAP = new List<DC_FieldMap>{
@@ -173,19 +173,23 @@ public with sharing class DC_Mappings {
     public static final List<DC_FieldMap> OPPORTUNITY_MAP = new List<DC_FieldMap>{
         new DC_FieldMap('Group_Coordinator__c','Group_Coordinator__c'),
         new DC_FieldMap('Group_Initialization_Date__c','Group_Create_Date__c'),
-        //new DC_FieldMap('Group_ID__c','Group_Id__c'),
-       // new DC_FieldMap('Group_Type__c','Group_Type__c'),
         new DC_FieldMap('Group_Type_Code__c','Group_Type_Code__c'),
         new DC_FieldMap('Comments__c','Group_Type_Name__c'),
         new DC_FieldMap('Group_Status__c','Group_Status__c'),
         new DC_FieldMap('ssot__OpportunityName__c','Name'),
         new DC_FieldMap('Sailing__c','Sailing__c'),
-        //new DC_FieldMap('SEAWARE_Agency_ID__c','SEAWARE_Agency_ID__c'),
+        new DC_FieldMap('Sailing__c','SailingTxt__c'),
+        
         new DC_FieldMap('ssot__OpportunityStageId__c','StageName'),
         new DC_FieldMap('x120_Day_Release_Date__c','X120_Day_Release_Date__c'),
         new DC_FieldMap('x180_Day_Release_Date__c','X180_Day_Release_Date__c'),
         new DC_FieldMap('Travel_Agent_Name__c','Travel_Agent_Name__c'),
-        new DC_FieldMap('Agent_ID__c','agent_ID__c')
+        
+        // **NEW: Agent lookup - using Travel_Agent__c lookup field**
+        new DC_FieldMap('Agent_ID__c','Travel_Agent__c'),
+        
+        // **NEW: Account lookup - using AccountId (standard Account Name field)**
+        new DC_FieldMap('SEAWARE_Agency_ID__c','AccountId')
     };
 
     // Booking__c ← Seaware_Booking__dlm

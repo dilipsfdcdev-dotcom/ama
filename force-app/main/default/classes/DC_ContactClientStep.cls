@@ -107,6 +107,9 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         Integer seawareCount = seawareClients.size();
         Integer salesforceCount = existingContacts.size();
         
+        System.debug(LoggingLevel.WARN, 'Processing Party ID: ' + partyId);
+        System.debug(LoggingLevel.WARN, 'Seaware Clients: ' + seawareCount + ', Salesforce Contacts: ' + salesforceCount);
+        
         if (seawareCount == 1 && salesforceCount == 0) {
             result.add(createContactFromSeawareClient(seawareClients[0], partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
         }
@@ -156,89 +159,161 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return result;
     }
 
+    /**
+     * FIXED SCENARIO 6: Multiple Seaware Clients, 1 Salesforce Contact (without Client_ID)
+     * Update SF contact with MOST RECENTLY MODIFIED Seaware Client, create new contacts for others
+     */
     private List<Contact> handleScenario6(List<Object> seawareClients, Contact existingContact, String partyId,
         Map<String, String> emailByParty, Map<String, String> phoneByParty,
         Map<String, Map<String, Object>> addressByParty, Map<String, Map<String, Object>> passportByParty) {
         
+        System.debug(LoggingLevel.WARN, '=== SCENARIO 6: Multiple Seaware (' + seawareClients.size() + '), 1 SF Contact ===');
+        
         List<Contact> result = new List<Contact>();
         String sfClientId = existingContact.Client_ID__c;
-        Object matchingSeawareClient = null;
-        List<Object> unmatchedSeawareClients = new List<Object>();
         
-        for (Object seawareClient : seawareClients) {
-            if (!String.isBlank(sfClientId) && sfClientId == getClientIdFromSeawareClient(seawareClient)) {
-                matchingSeawareClient = seawareClient;
-            } else {
-                unmatchedSeawareClients.add(seawareClient);
+        // Sort Seaware clients by last modified date to find the most recent one
+        List<Object> sortedSeawareClients = new List<Object>(seawareClients);
+        sortSeawareClientsByLastModified(sortedSeawareClients);
+        
+        Object mostRecentSeawareClient = sortedSeawareClients[0]; // First one after sorting is most recent
+        DateTime mostRecentDate = convertToDateTime(getFieldValue(mostRecentSeawareClient, 'ssot__LastModifiedDate__c'));
+        
+        System.debug(LoggingLevel.WARN, 'Most recent Seaware Client ID: ' + getClientIdFromSeawareClient(mostRecentSeawareClient));
+        System.debug(LoggingLevel.WARN, 'Most recent modified date: ' + mostRecentDate);
+        System.debug(LoggingLevel.WARN, 'Existing SF Contact Client_ID: ' + sfClientId);
+        
+        // Case 1: SF Contact has no Client_ID - update with most recent Seaware Client
+        if (String.isBlank(sfClientId)) {
+            System.debug(LoggingLevel.WARN, 'Case: SF Contact has NO Client_ID - updating with most recent Seaware Client');
+            
+            Contact contactToUpdate = new Contact(Id = existingContact.Id);
+            contactToUpdate.Client_ID__c = getClientIdFromSeawareClient(mostRecentSeawareClient);
+            updateContactFieldsFromSeaware(contactToUpdate, mostRecentSeawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
+            result.add(contactToUpdate);
+            
+            System.debug(LoggingLevel.WARN, 'Updated Contact with ID: ' + existingContact.Id + ', new Client_ID: ' + contactToUpdate.Client_ID__c);
+            
+            // Create new contacts for all other Seaware Clients
+            for (Integer i = 1; i < sortedSeawareClients.size(); i++) {
+                Object seawareClient = sortedSeawareClients[i];
+                String clientId = getClientIdFromSeawareClient(seawareClient);
+                System.debug(LoggingLevel.WARN, 'Creating NEW contact for Seaware Client ID: ' + clientId);
+                result.add(createContactFromSeawareClient(seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
             }
         }
-        
-        if (String.isBlank(sfClientId)) {
-            Object mostRecent = findMostRecentSeawareClient(seawareClients);
-            Contact contactToUpdate = new Contact(Id = existingContact.Id);
-            contactToUpdate.Client_ID__c = getClientIdFromSeawareClient(mostRecent);
-            updateContactFieldsFromSeaware(contactToUpdate, mostRecent, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
-            result.add(contactToUpdate);
-            for (Object seawareClient : seawareClients) {
-                if (seawareClient != mostRecent) {
+        // Case 2: SF Contact has Client_ID - check for exact match
+        else {
+            System.debug(LoggingLevel.WARN, 'Case: SF Contact HAS Client_ID - checking for matches');
+            
+            Object matchingSeawareClient = null;
+            List<Object> unmatchedSeawareClients = new List<Object>();
+            
+            for (Object seawareClient : sortedSeawareClients) {
+                String seawareClientId = getClientIdFromSeawareClient(seawareClient);
+                if (sfClientId == seawareClientId) {
+                    matchingSeawareClient = seawareClient;
+                    System.debug(LoggingLevel.WARN, 'Found MATCHING Seaware Client ID: ' + seawareClientId);
+                } else {
+                    unmatchedSeawareClients.add(seawareClient);
+                }
+            }
+            
+            if (matchingSeawareClient != null) {
+                // Update existing contact with matching Seaware Client
+                System.debug(LoggingLevel.WARN, 'Updating SF Contact with matching Seaware Client');
+                Contact contactToUpdate = new Contact(Id = existingContact.Id);
+                contactToUpdate.Client_ID__c = sfClientId;
+                updateContactFieldsFromSeaware(contactToUpdate, matchingSeawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
+                result.add(contactToUpdate);
+                
+                // Create new contacts for unmatched Seaware Clients
+                for (Object seawareClient : unmatchedSeawareClients) {
+                    System.debug(LoggingLevel.WARN, 'Creating NEW contact for unmatched Seaware Client ID: ' + getClientIdFromSeawareClient(seawareClient));
+                    result.add(createContactFromSeawareClient(seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
+                }
+            } else {
+                // No match found - create new contacts for ALL Seaware Clients
+                System.debug(LoggingLevel.WARN, 'No matching Client_ID found - creating NEW contacts for all Seaware Clients');
+                for (Object seawareClient : sortedSeawareClients) {
+                    System.debug(LoggingLevel.WARN, 'Creating NEW contact for Seaware Client ID: ' + getClientIdFromSeawareClient(seawareClient));
                     result.add(createContactFromSeawareClient(seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
                 }
             }
         }
-        else if (matchingSeawareClient != null) {
-            Contact contactToUpdate = new Contact(Id = existingContact.Id);
-            contactToUpdate.Client_ID__c = sfClientId;
-            updateContactFieldsFromSeaware(contactToUpdate, matchingSeawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
-            result.add(contactToUpdate);
-            for (Object seawareClient : unmatchedSeawareClients) {
-                result.add(createContactFromSeawareClient(seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
-            }
-        }
-        else {
-            for (Object seawareClient : seawareClients) {
-                result.add(createContactFromSeawareClient(seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
-            }
-        }
+        
+        System.debug(LoggingLevel.WARN, 'Scenario 6 Result: ' + result.size() + ' contacts (updates + inserts)');
         return result;
     }
 
+    /**
+     * FIXED SCENARIO 7: 1 Seaware Client, Multiple Salesforce Contacts (without Client_IDs)
+     * Update MOST RECENTLY MODIFIED Salesforce Contact, leave others unchanged
+     */
     private List<Contact> handleScenario7(Object seawareClient, List<Contact> existingContacts, String partyId,
         Map<String, String> emailByParty, Map<String, String> phoneByParty,
         Map<String, Map<String, Object>> addressByParty, Map<String, Map<String, Object>> passportByParty) {
         
+        System.debug(LoggingLevel.WARN, '=== SCENARIO 7: 1 Seaware Client, Multiple SF Contacts (' + existingContacts.size() + ') ===');
+        
         List<Contact> result = new List<Contact>();
         String seawareClientId = getClientIdFromSeawareClient(seawareClient);
+        
+        System.debug(LoggingLevel.WARN, 'Seaware Client ID: ' + seawareClientId);
+        
+        // Check for existing SF Contact with matching Client_ID
         Contact matchingContact = null;
-        Boolean hasContactWithoutClientId = false;
-        Contact mostRecentContact = existingContacts[0];
+        Contact mostRecentContactWithoutId = null;
+        DateTime mostRecentDate = null;
         
         for (Contact existingContact : existingContacts) {
+            System.debug(LoggingLevel.WARN, 'Checking SF Contact Id: ' + existingContact.Id + 
+                        ', Client_ID: ' + existingContact.Client_ID__c + 
+                        ', LastModifiedDate: ' + existingContact.LastModifiedDate);
+            
+            // Case 1: Found exact match by Client_ID
             if (!String.isBlank(existingContact.Client_ID__c) && existingContact.Client_ID__c == seawareClientId) {
                 matchingContact = existingContact;
+                System.debug(LoggingLevel.WARN, 'Found MATCHING Contact with Client_ID: ' + existingContact.Client_ID__c);
             }
+            
+            // Case 2: Track most recently modified contact WITHOUT Client_ID
             if (String.isBlank(existingContact.Client_ID__c)) {
-                hasContactWithoutClientId = true;
-            }
-            if (existingContact.LastModifiedDate > mostRecentContact.LastModifiedDate) {
-                mostRecentContact = existingContact;
+                if (mostRecentContactWithoutId == null || existingContact.LastModifiedDate > mostRecentDate) {
+                    mostRecentContactWithoutId = existingContact;
+                    mostRecentDate = existingContact.LastModifiedDate;
+                    System.debug(LoggingLevel.WARN, 'New most recent contact without Client_ID: ' + existingContact.Id + 
+                                ', LastModified: ' + mostRecentDate);
+                }
             }
         }
         
+        // Decision logic:
         if (matchingContact != null) {
+            // Update the contact that already has matching Client_ID
+            System.debug(LoggingLevel.WARN, 'Case: Found matching Client_ID - updating Contact Id: ' + matchingContact.Id);
             Contact contactToUpdate = new Contact(Id = matchingContact.Id);
             contactToUpdate.Client_ID__c = seawareClientId;
             updateContactFieldsFromSeaware(contactToUpdate, seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
             result.add(contactToUpdate);
         }
-        else if (hasContactWithoutClientId) {
-            Contact contactToUpdate = new Contact(Id = mostRecentContact.Id);
+        else if (mostRecentContactWithoutId != null) {
+            // Update most recently modified contact that has no Client_ID
+            System.debug(LoggingLevel.WARN, 'Case: No matching Client_ID - updating MOST RECENT contact without Client_ID');
+            System.debug(LoggingLevel.WARN, 'Updating Contact Id: ' + mostRecentContactWithoutId.Id + 
+                        ', LastModified: ' + mostRecentDate);
+            Contact contactToUpdate = new Contact(Id = mostRecentContactWithoutId.Id);
             contactToUpdate.Client_ID__c = seawareClientId;
             updateContactFieldsFromSeaware(contactToUpdate, seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty);
             result.add(contactToUpdate);
         }
         else {
+            // All contacts have Client_IDs that don't match - create new contact
+            System.debug(LoggingLevel.WARN, 'Case: All SF Contacts have different Client_IDs - creating NEW contact');
             result.add(createContactFromSeawareClient(seawareClient, partyId, emailByParty, phoneByParty, addressByParty, passportByParty));
         }
+        
+        System.debug(LoggingLevel.WARN, 'Scenario 7 Result: ' + result.size() + ' contact(s) to update/insert');
         return result;
     }
 
@@ -269,13 +344,30 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         return result;
     }
 
+    /**
+     * NEW HELPER METHOD: Sort Seaware clients by LastModifiedDate (newest first)
+     */
+    private void sortSeawareClientsByLastModified(List<Object> seawareClients) {
+        // Simple bubble sort by LastModifiedDate (newest first)
+        for (Integer i = 0; i < seawareClients.size() - 1; i++) {
+            for (Integer j = 0; j < seawareClients.size() - i - 1; j++) {
+                DateTime date1 = convertToDateTime(getFieldValue(seawareClients[j], 'ssot__LastModifiedDate__c'));
+                DateTime date2 = convertToDateTime(getFieldValue(seawareClients[j + 1], 'ssot__LastModifiedDate__c'));
+                
+                if (date1 == null || (date2 != null && date1 < date2)) {
+                    // Swap
+                    Object temp = seawareClients[j];
+                    seawareClients[j] = seawareClients[j + 1];
+                    seawareClients[j + 1] = temp;
+                }
+            }
+        }
+    }
+
     private Map<String, String> queryEmailContactPointsCDP(Set<String> partyIds) {
         Map<String, String> emailByParty = new Map<String, String>();
         if (partyIds.isEmpty()) return emailByParty;
         try {
-            /*String sql = 'SELECT ssot__PartyId__c, ssot__EmailAddress__c FROM ssot__ContactPointEmail__dlm ' +
-                        'WHERE ssot__EmailAddress__c =\'writebackscenario5a@accelerize360.com\' AND ssot__PartyId__c IN (\'' + 
-                        String.join(new List<String>(partyIds), '\', \'') + '\')';*/
             String sql = 'SELECT ssot__PartyId__c, ssot__EmailAddress__c FROM ssot__ContactPointEmail__dlm ' +
                         'WHERE ssot__PartyId__c IN (\'' +String.join(new List<String>(partyIds), '\', \'') + '\')';
             for (Map<String, Object> emailRec : DC_CdpQueryUtil.executeQuery(sql)) {

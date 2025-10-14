@@ -9,7 +9,6 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-        // **FIX: Use CDP timestamp function for proper date filtering**
         String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
         return 'ssot__DataSourceObjectId__c = \'Seaware_Opportunity_E1C50A03\' AND ' + dateFilter;
     }
@@ -20,10 +19,9 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
             f.add(m.src);
         }
         f.add(ORDER_BY_SRC); // cursor + ext-id source
-        f.add('Sailing__c'); // for Sailing lookup
-        f.add('Agent_ID__c'); // for Agent lookup
-        f.add('SEAWARE_Agency_ID__c');
-        // **FIX: Add the last modified date field to the field list**
+        f.add('Sailing__c'); // for both Sailing__c lookup AND SailingTxt__c text field
+        f.add('Agent_ID__c'); // for Agent lookup (Travel_Agent__c)
+        f.add('SEAWARE_Agency_ID__c'); // for Account lookup (AccountId)
         f.add('ssot__LastModifiedDate__c');
         return f;
     }
@@ -32,23 +30,28 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
         List<Object> scope = (List<Object>)scopeObj;
         List<SObject> out = new List<SObject>();
 
-        // Bulk resolve Account by external id
+        System.debug(LoggingLevel.WARN, '=== OPPORTUNITY STEP START ===');
+        System.debug(LoggingLevel.WARN, 'Processing ' + scope.size() + ' opportunity records');
+
+        // **Bulk resolve Account by external id (SEAWARE_Agency_ID__c → AccountId)**
         Set<String> accountKeys = new Set<String>();
         for (Object src : scope) {
             String k = (String) getFieldValue(src, 'SEAWARE_Agency_ID__c');
             if (!String.isBlank(k)) accountKeys.add(k);
         }
         Map<String, Id> accountByExt = bulkLookupByExternalId('Account', 'SEAWARE_Agency_ID__c', accountKeys);
+        System.debug(LoggingLevel.WARN, 'Found ' + accountByExt.size() + ' matching Accounts');
 
-        // Bulk resolve Sailing by external id
+        // **Bulk resolve Sailing by external id (Sailing__c → Sailing__c lookup)**
         Set<String> sailingKeys = new Set<String>();
         for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Sailing__c');
             if (!String.isBlank(k)) sailingKeys.add(k);
         }
         Map<String, Id> sailingByExt = bulkLookupByExternalId('Sailing__c', 'Sailing_Code__c', sailingKeys);
+        System.debug(LoggingLevel.WARN, 'Found ' + sailingByExt.size() + ' matching Sailings');
 
-        // Bulk resolve Contact (Agent) by external id
+        // **Bulk resolve Contact (Agent) by external id (Agent_ID__c → Travel_Agent__c)**
         Set<String> agentKeys = new Set<String>();
         for (Object src : scope) {
             String k = (String) getFieldValue(src, 'Agent_ID__c');
@@ -60,46 +63,69 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
                 SELECT Id, Agent_ID__c
                 FROM Contact
                 WHERE Agent_ID__c IN :agentKeys
-                AND RecordType.Name = 'Agent'
+                AND RecordType.Name = 'Confirmed Agent'
             ]) {
                 agentByExt.put(c.Agent_ID__c, c.Id);
             }
         }
+        System.debug(LoggingLevel.WARN, 'Found ' + agentByExt.size() + ' matching Agents');
         
+        // Process each opportunity
         for (Object src : scope) {
             Opportunity opp = new Opportunity();
             String groupId = (String) getFieldValue(src, ORDER_BY_SRC);
             setFieldValue(opp, OPPORTUNITY_EXTID, groupId);
             
+            System.debug(LoggingLevel.INFO, '--- Processing Opportunity: ' + groupId + ' ---');
+            
+            // Get sailing code value once for both lookup and text field
+            String sailingCodeValue = (String) getFieldValue(src, 'Sailing__c');
+            
             for (DC_FieldMap m : DC_Mappings.OPPORTUNITY_MAP) {
                 if (m.tgt == 'AccountId') {
-                    // Handle Account lookup
+                    // **Handle Account lookup (SEAWARE_Agency_ID__c → AccountId)**
                     String accountKey = (String) getFieldValue(src, 'SEAWARE_Agency_ID__c');
                     if (!String.isBlank(accountKey)) {
                         Id accountId = accountByExt.get(accountKey);
                         if (accountId != null) {
                             opp.AccountId = accountId;
+                            System.debug(LoggingLevel.INFO, 'Set AccountId: ' + accountId + ' (from ' + accountKey + ')');
+                        } else {
+                            System.debug(LoggingLevel.WARN, 'Account not found for SEAWARE_Agency_ID: ' + accountKey);
                         }
                     }
                 } else if (m.tgt == 'Sailing__c') {
-                    // Handle Sailing lookup
-                    String sailingKey = (String) getFieldValue(src, 'Sailing__c');
-                    if (!String.isBlank(sailingKey)) {
-                        Id sailingId = sailingByExt.get(sailingKey);
+                    // **Handle Sailing lookup (Sailing__c → Sailing__c lookup field)**
+                    if (!String.isBlank(sailingCodeValue)) {
+                        Id sailingId = sailingByExt.get(sailingCodeValue);
                         if (sailingId != null) {
                             setFieldValue(opp, m.tgt, sailingId);
+                            System.debug(LoggingLevel.INFO, 'Set Sailing__c lookup: ' + sailingId + ' (from ' + sailingCodeValue + ')');
+                        } else {
+                            System.debug(LoggingLevel.WARN, 'Sailing not found for code: ' + sailingCodeValue);
                         }
                     }
-                } else if (m.tgt == 'agent_ID__c') {
-                    // Handle Agent lookup - store Contact Id in agent_ID__c field
+                } else if (m.tgt == 'SailingTxt__c') {
+                    // **Handle Sailing text field (Sailing__c → SailingTxt__c text field)**
+                    // Store the sailing code as plain text
+                    if (!String.isBlank(sailingCodeValue)) {
+                        setFieldValue(opp, m.tgt, sailingCodeValue);
+                        System.debug(LoggingLevel.INFO, 'Set SailingTxt__c text: ' + sailingCodeValue);
+                    }
+                } else if (m.tgt == 'Travel_Agent__c') {
+                    // **Handle Agent lookup (Agent_ID__c → Travel_Agent__c)**
                     String agentKey = (String) getFieldValue(src, 'Agent_ID__c');
                     if (!String.isBlank(agentKey)) {
                         Id agentId = agentByExt.get(agentKey);
                         if (agentId != null) {
                             setFieldValue(opp, m.tgt, agentId);
+                            System.debug(LoggingLevel.INFO, 'Set Travel_Agent__c: ' + agentId + ' (from ' + agentKey + ')');
+                        } else {
+                            System.debug(LoggingLevel.WARN, 'Agent not found for Agent_ID: ' + agentKey);
                         }
                     }
                 } else {
+                    // Handle all other standard field mappings
                     Object value = getFieldValue(src, m.src);
                     if (value != null) {
                         setFieldValue(opp, m.tgt, value);
@@ -117,10 +143,13 @@ public with sharing class DC_OpportunityStep extends DC_BaseStep implements DC_I
             
             out.add(opp);
         }
+        
+        System.debug(LoggingLevel.WARN, 'Prepared ' + out.size() + ' opportunities for upsert');
+        System.debug(LoggingLevel.WARN, '=== OPPORTUNITY STEP END ===');
+        
         return new DC_UpsertBundle(out, OPPORTUNITY_EXTID);
     }
 
-    // Local method to avoid inheritance issues
     private Id getChartersProposalRecordTypeId() {
         try {
             return Schema.SObjectType.Opportunity.getRecordTypeInfosByName().get('Charters Proposal').getRecordTypeId();
