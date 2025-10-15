@@ -171,8 +171,8 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
                 if (parentId != null) {
                     Account acc = new Account(
                         SEAWARE_Agency_ID__c = accountExtId,
-                        Host_Account__c = parentId,      // Custom lookup
-                        ParentId = parentId                // Standard lookup
+                        Host_Account__c = parentId,
+                        ParentId = parentId
                     );
                     accountsToUpdate.add(acc);
                     successCount++;
