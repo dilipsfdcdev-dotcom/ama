@@ -4,9 +4,11 @@
         <members>DC_AccountStep</members>
         <members>DC_AccountStep_Test</members>
         <members>DC_BaseStep</members>
+        <members>DC_BaseStep_Test</members>
         <members>DC_BookingStep</members>
         <members>DC_BookingStep_Test</members>
         <members>DC_CdpQueryUtil</members>
+        <members>DC_CdpQueryUtil_Test</members>
         <members>DC_CommissionStep</members>
         <members>DC_CommissionStep_Test</members>
         <members>DC_ContactAgentStep</members>
@@ -14,22 +16,31 @@
         <members>DC_ContactClientStep</members>
         <members>DC_ContactClientStep_Test</members>
         <members>DC_DateChunkDebugger</members>
+        <members>DC_DateChunkDebugger_Test</members>
         <members>DC_DateUtil</members>
+        <members>DC_DateUtil_Test</members>
         <members>DC_Debug</members>
+        <members>DC_Debug_Test</members>
         <members>DC_DmlUtil</members>
+        <members>DC_DmlUtil_Test</members>
         <members>DC_FieldMap</members>
         <members>DC_IStep</members>
         <members>DC_IWhere</members>
         <members>DC_JoinConfig</members>
+        <members>DC_JoinConfig_Test</members>
         <members>DC_LogUtil</members>
+        <members>DC_LogUtil_Test</members>
         <members>DC_Mappings</members>
         <members>DC_MultiSourceData</members>
+        <members>DC_MultiSourceData_Test</members>
         <members>DC_NightlyScheduler</members>
+        <members>DC_NightlyScheduler_Test</members>
         <members>DC_OpportunityStep</members>
         <members>DC_OpportunityStep_Test</members>
         <members>DC_Orchestrator</members>
         <members>DC_Orchestrator_Test</members>
         <members>DC_RelationshipQueryUtil</members>
+        <members>DC_RelationshipQueryUtil_Test</members>
         <members>DC_ReservationStep</members>
         <members>DC_ReservationStep_Test</members>
         <members>DC_SailingStep</members>
@@ -37,9 +48,12 @@
         <members>DC_ShipStep</members>
         <members>DC_ShipStep_Test</members>
         <members>DC_StepFactory</members>
+        <members>DC_StepFactory_Test</members>
         <members>DC_StepRunner</members>
+        <members>DC_StepRunner_Test</members>
         <members>DC_SyncException</members>
         <members>DC_TypeConverter</members>
+        <members>DC_TypeConverter_Test</members>
         <members>DC_UpsertBundle</members>
         <name>ApexClass</name>
     </types>
