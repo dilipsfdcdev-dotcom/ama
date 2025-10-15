@@ -118,7 +118,8 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
         try {
             // Query Data Cloud for all accounts that have a Parent_ID
             String baseWhereClause = whereClause();
-            String whereClauseWithParent = baseWhereClause + ' AND Parent_ID__c != null';
+            String whereClauseWithParent =
+                baseWhereClause + ' AND COALESCE(TRIM(Parent_ID__c), \'\') <> \'\'';
             
             String sql = DC_CdpQueryUtil.buildDataCloudSql(
                 SRC_OBJECT,

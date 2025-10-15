@@ -22,6 +22,7 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('ssot__Id__c','SEAWARE_Agency_ID__c'),
         new DC_FieldMap('Secondary_Account_Name__c','Secondary_Account_Name__c'),
         new DC_FieldMap('Status__c','Status__c'),
+        new DC_FieldMap('Classification_Code__c','Code__c'),
         new DC_FieldMap('Parent_ID__c','Host_Account__c'),
         new DC_FieldMap('Parent_ID__c','ParentId')
     };
@@ -177,8 +178,8 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('Comments__c','Group_Type_Name__c'),
         new DC_FieldMap('Group_Status__c','Group_Status__c'),
         new DC_FieldMap('ssot__OpportunityName__c','Name'),
-        new DC_FieldMap('Sailing__c','Sailing__c'),
-        new DC_FieldMap('Sailing__c','SailingTxt__c'),
+        new DC_FieldMap('Sailing_Code__c ','Sailing__c'),
+        new DC_FieldMap('Sailing_Code__c ','SailingTxt__c'),
         
         new DC_FieldMap('ssot__OpportunityStageId__c','StageName'),
         new DC_FieldMap('x120_Day_Release_Date__c','X120_Day_Release_Date__c'),

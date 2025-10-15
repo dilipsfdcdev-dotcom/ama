@@ -141,7 +141,7 @@ public with sharing class DC_DateUtil {
             if (!records.isEmpty() && records[0].Sync_Data_Days__c != null) {
                 Integer syncDays = Integer.valueOf(records[0].Sync_Data_Days__c);
                 // Ensure sync days is within valid range (1-20)
-                if (syncDays >= 1 && syncDays <= 20) {
+                if (syncDays >= 1 && syncDays <= 60) {
                     return syncDays;
                 }
             }

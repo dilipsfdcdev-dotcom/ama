@@ -9,8 +9,10 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-        String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
+       String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
        return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ' + dateFilter;
+       /*return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' ' +
+           'AND ssot__Id__c IN (\'30000007\', \'30000008\', \'30000014\')';*/
     }
 
     public override Set<String> sourceFields() {
