@@ -1,6 +1,8 @@
 /**
  * Centralized utility for converting Data Cloud string values to proper Salesforce field types
  * All steps should use this class for type conversions
+ * 
+ * UPDATED: Added HTML entity decoding to handle strings like "JOE&#39;S TRAVEL" correctly
  */
 public with sharing class DC_TypeConverter {
     
@@ -80,12 +82,52 @@ public with sharing class DC_TypeConverter {
     }
     
     /**
-     * Convert to String
+     * Convert to String with HTML entity decoding
+     * FIXED: Decodes HTML entities like &#39; (apostrophe) that come from Data Cloud
      */
     public static String convertToString(Object value) {
         if (value == null) return null;
-        if (value instanceof String) return (String) value;
-        return String.valueOf(value);
+        
+        String strValue;
+        if (value instanceof String) {
+            strValue = (String) value;
+        } else {
+            strValue = String.valueOf(value);
+        }
+        
+        // Decode common HTML entities that may come from Data Cloud
+        if (strValue.contains('&')) {
+            strValue = decodeHtmlEntities(strValue);
+        }
+        
+        return strValue;
+    }
+    
+    /**
+     * Decode HTML entities in strings
+     * Common entities from Data Cloud: &#39; (apostrophe), &quot; (quote), &amp; (ampersand), etc.
+     */
+    private static String decodeHtmlEntities(String value) {
+        if (String.isBlank(value)) return value;
+        
+        String decoded = value;
+        
+        // Decode numeric entities (&#39; = apostrophe, &#34; = quote, etc.)
+        decoded = decoded.replaceAll('&#39;', '\'');
+        decoded = decoded.replaceAll('&#34;', '"');
+        decoded = decoded.replaceAll('&#38;', '&');
+        decoded = decoded.replaceAll('&#60;', '<');
+        decoded = decoded.replaceAll('&#62;', '>');
+        
+        // Decode named entities
+        decoded = decoded.replaceAll('&apos;', '\'');
+        decoded = decoded.replaceAll('&quot;', '"');
+        decoded = decoded.replaceAll('&amp;', '&');
+        decoded = decoded.replaceAll('&lt;', '<');
+        decoded = decoded.replaceAll('&gt;', '>');
+        decoded = decoded.replaceAll('&nbsp;', ' ');
+        
+        return decoded;
     }
     
     /**
