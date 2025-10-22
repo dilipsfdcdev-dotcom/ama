@@ -153,6 +153,41 @@ public with sharing class DC_DateUtil {
     }
     
     /**
+     * NEW METHOD: Get the DataSourceObjectId from custom metadata for a specific step
+     * This allows dynamic configuration of Data Cloud source object IDs without hardcoding
+     * @param stepName The step name to look up (e.g., 'Account', 'Client', 'Agent', 'Opportunity')
+     * @return String The DataSourceObjectId value from custom metadata, or null if not found
+     */
+    public static String getDataSourceObjectId(String stepName) {
+        if (String.isBlank(stepName)) {
+            System.debug(LoggingLevel.ERROR, 'Step name cannot be blank for getDataSourceObjectId');
+            return null;
+        }
+        
+        try {
+            List<DataSync_ObjectOrder__mdt> records = [
+                SELECT DataSourceObjectId__c 
+                FROM DataSync_ObjectOrder__mdt 
+                WHERE StepName__c = :stepName 
+                AND Active__c = true 
+                LIMIT 1
+            ];
+            
+            if (!records.isEmpty() && records[0].DataSourceObjectId__c != null) {
+                String dataSourceObjectId = records[0].DataSourceObjectId__c;
+                System.debug(LoggingLevel.INFO, 'Retrieved DataSourceObjectId for ' + stepName + ': ' + dataSourceObjectId);
+                return dataSourceObjectId;
+            } else {
+                System.debug(LoggingLevel.WARN, 'No DataSourceObjectId found for step: ' + stepName);
+                return null;
+            }
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'Error retrieving DataSourceObjectId for step ' + stepName + ': ' + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
      * Format date for CDP queries in ISO format (YYYY-MM-DD)
      * @param dateValue The date to format
      * @return String The formatted date string

@@ -17,7 +17,14 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
 
     public String whereClause() {
         String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
-        return 'ssot__DataSourceObjectId__c = \'Seaware_Account_E1C509FE\' AND ' + dateFilter;
+        String dataSourceObjectId = DC_DateUtil.getDataSourceObjectId(STEP_NAME);
+        
+        if (String.isBlank(dataSourceObjectId)) {
+            System.debug(LoggingLevel.ERROR, 'DataSourceObjectId not found for step: ' + STEP_NAME);
+            return dateFilter;
+        }
+        
+        return 'ssot__DataSourceObjectId__c = \'' + dataSourceObjectId + '\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {

@@ -9,10 +9,16 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
+       // **UPDATED: Use dynamic DataSourceObjectId from custom metadata**
        String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME, 'ssot__LastModifiedDate__c');
-       return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' AND ' + dateFilter;
-       /*return 'ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\' ' +
-           'AND ssot__Id__c IN (\'30000007\', \'30000008\', \'30000014\')';*/
+       String dataSourceObjectId = DC_DateUtil.getDataSourceObjectId(STEP_NAME);
+       
+       if (String.isBlank(dataSourceObjectId)) {
+           System.debug(LoggingLevel.ERROR, 'DataSourceObjectId not found for step: ' + STEP_NAME);
+           return dateFilter;
+       }
+       
+       return 'ssot__DataSourceObjectId__c = \'' + dataSourceObjectId + '\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {
