@@ -3,8 +3,6 @@
 	<types>
 		<members>AgentStatusHandlerController</members>
 		<members>AgentStatusHandlerController_Test</members>
-		<members>AgentWorkTriggerHandler</members>
-		<members>AgentWorkTriggerHandler_Test</members>
 		<members>CountdownConfigController</members>
 		<members>CountdownConfigController_Test</members>
 		<members>DC_AccountStep</members>
@@ -69,7 +67,6 @@
 		<name>ApexClass</name>
 	</types>
 	<types>
-		<members>AgentWorkTrigger</members>
 		<members>TaskTrigger</members>
 		<name>ApexTrigger</name>
 	</types>

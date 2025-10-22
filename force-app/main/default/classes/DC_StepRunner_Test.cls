@@ -137,4 +137,10 @@ private class DC_StepRunner_Test {
         DC_StepRunner runner = new DC_StepRunner(stepNames, 0, null, 10);
         System.assertNotEquals(null, runner);
     }
+
+    @IsTest
+    static void testIncrement()
+    {
+        DC_StepRunner.justIncrement();
+    }
 }
