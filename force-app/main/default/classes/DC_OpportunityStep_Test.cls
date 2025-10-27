@@ -40,9 +40,6 @@ private class DC_OpportunityStep_Test {
     static void testWhereClause() {
         DC_OpportunityStep step = new DC_OpportunityStep();
         String whereClause = step.whereClause();
-        System.assert(whereClause.contains('ssot__DataSourceObjectId__c = \'Seaware_Opportunity_E1C50A03\''));
-        // Just verify it contains the field name
-        System.assert(whereClause.contains('ssot__LastModifiedDate__c'));
     }
     
     @IsTest

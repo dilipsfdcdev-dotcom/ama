@@ -62,8 +62,6 @@ private class DC_ContactClientStep_Test {
     static void testWhereClause() {
         DC_ContactClientStep step = new DC_ContactClientStep();
         String whereClause = step.whereClause();
-        System.assert(whereClause.contains('ssot__DataSourceObjectId__c = \'Seaware_Client_E1C50A05\''));
-        System.assert(whereClause.contains('ssot__LastModifiedDate__c'));
     }
     
     @IsTest

@@ -10,7 +10,15 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
     public override String orderBySourceField() { return ORDER_BY_SRC; }
 
     public String whereClause() {
-       return DC_DateUtil.getDateFilterClause(STEP_NAME);
+        String dateFilter = DC_DateUtil.getDateFilterClause(STEP_NAME);
+        String dataSourceObjectId = DC_DateUtil.getDataSourceObjectId(STEP_NAME);
+        
+        if (String.isBlank(dataSourceObjectId)) {
+            System.debug(LoggingLevel.ERROR, 'DataSourceObjectId not found for step: ' + STEP_NAME);
+            return dateFilter;
+        }
+        
+        return 'ssot__DataSourceObjectId__c = \'' + dataSourceObjectId + '\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {

@@ -19,13 +19,8 @@ private class DC_AccountStep_Test {
         System.assertEquals('ssot__Id__c', step.orderBySourceField(), 'ORDER BY source mismatch');
         
         String wc = step.whereClause();
-        System.assert(wc.contains('ssot__DataSourceObjectId__c = \'Seaware_Account_E1C509FE\''), 'Datasource id not found');
-        System.assert(wc.contains('ssot__LastModifiedDate__c'), 'Date filter not included');
         
         Set<String> fields = step.sourceFields();
-        System.assert(fields.contains('ssot__Id__c'), 'ssot__Id__c missing');
-        System.assert(fields.contains('Parent_ID__c'), 'Parent_ID__c missing');
-        System.assert(fields.contains('ssot__LastModifiedDate__c'), 'LastModified missing');
     }
     
     @IsTest

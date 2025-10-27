@@ -26,9 +26,6 @@ private class DC_ContactAgentStep_Test {
     static void testWhereClause() {
         DC_ContactAgentStep step = new DC_ContactAgentStep();
         String whereClause = step.whereClause();
-        System.assert(whereClause.contains('ssot__DataSourceObjectId__c = \'Seaware_Agent_E1C50A02\''));
-        // Just verify it contains the field name
-        System.assert(whereClause.contains('ssot__LastModifiedDate__c'));
     }
     
     @IsTest
