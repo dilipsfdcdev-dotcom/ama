@@ -18,7 +18,7 @@ public with sharing class DC_BookingStep extends DC_BaseStep implements DC_IWher
             return dateFilter;
         }
         
-        return 'ssot__DataSourceObjectId__c = \'' + dataSourceObjectId + '\' AND ' + dateFilter;
+        return 'DataSourceObject__c = \'' + dataSourceObjectId + '\' AND ' + dateFilter;
     }
 
     public override Set<String> sourceFields() {
