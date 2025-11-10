@@ -127,18 +127,18 @@ public with sharing class DC_ErrorLogger {
      * Log a general sync exception
      * @param stepName The name of the sync step
      * @param operationType The type of operation
-     * @param exception The exception that occurred
+     * @param ex The exception that occurred
      * @param additionalContext Any additional context information
      */
     public static void logException(String stepName, String operationType, 
-                                    Exception exception, String additionalContext) {
+                                    Exception ex, String additionalContext) {
         Error_Log__c errorLog = new Error_Log__c(
             Step_Name__c = stepName,
             Operation_Type__c = operationType,
-            Error_Message__c = exception.getMessage() + '\n\nStack Trace:\n' + 
-                               exception.getStackTraceString() +
+            Error_Message__c = ex.getMessage() + '\n\nStack Trace:\n' + 
+                               ex.getStackTraceString() +
                                (String.isNotBlank(additionalContext) ? '\n\nContext:\n' + additionalContext : ''),
-            Error_Status_Code__c = exception.getTypeName(),
+            Error_Status_Code__c = ex.getTypeName(),
             Error_Timestamp__c = DateTime.now()
         );
         
@@ -149,9 +149,9 @@ public with sharing class DC_ErrorLogger {
             '=== EXCEPTION LOG CREATED ===\n' +
             'Step: ' + stepName + '\n' +
             'Operation: ' + operationType + '\n' +
-            'Exception Type: ' + exception.getTypeName() + '\n' +
-            'Message: ' + exception.getMessage() + '\n' +
-            'Stack Trace: ' + exception.getStackTraceString() +
+            'Exception Type: ' + ex.getTypeName() + '\n' +
+            'Message: ' + ex.getMessage() + '\n' +
+            'Stack Trace: ' + ex.getStackTraceString() +
             (String.isNotBlank(additionalContext) ? '\nContext: ' + additionalContext : '')
         );
     }

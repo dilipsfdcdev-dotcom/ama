@@ -186,6 +186,9 @@ public with sharing class DC_Mappings {
         new DC_FieldMap('x180_Day_Release_Date__c','X180_Day_Release_Date__c'),
         new DC_FieldMap('Travel_Agent_Name__c','Travel_Agent_Name__c'),
         
+        new DC_FieldMap('Sail_Date_From__c','CloseDate'),
+        new DC_FieldMap('Sail_Date_To__c','Disembarkation_Date__c'),
+        
         // **NEW: Agent lookup - using Travel_Agent__c lookup field**
         new DC_FieldMap('Agent_ID__c','Travel_Agent__c'),
         
