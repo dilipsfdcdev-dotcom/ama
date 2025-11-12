@@ -170,42 +170,44 @@ public with sharing class DC_TypeConverter {
     
     /**
      * Convert to Decimal
+     * Rounds to 5 decimal places to avoid excessive precision from Data Cloud
      */
     public static Decimal convertToDecimal(Object value) {
         if (value == null) return null;
-        
+
+        Decimal result = null;
+
         if (value instanceof Decimal) {
-            return (Decimal) value;
-        }
-        
-        if (value instanceof Integer) {
-            return Decimal.valueOf((Integer) value);
-        }
-        
-        if (value instanceof Long) {
-            return Decimal.valueOf((Long) value);
-        }
-        
-        if (value instanceof String) {
+            result = (Decimal) value;
+        } else if (value instanceof Integer) {
+            result = Decimal.valueOf((Integer) value);
+        } else if (value instanceof Long) {
+            result = Decimal.valueOf((Long) value);
+        } else if (value instanceof String) {
             String strValue = ((String) value).trim();
             if (String.isBlank(strValue)) return null;
-            
+
             try {
                 // Remove currency symbols and commas
                 strValue = strValue.replaceAll('[,$€£¥]', '');
-                return Decimal.valueOf(strValue);
+                result = Decimal.valueOf(strValue);
             } catch (Exception e) {
                 System.debug(LoggingLevel.ERROR, 'Cannot convert string to decimal: ' + value);
                 return null;
             }
+        } else if (value instanceof Double) {
+            result = Decimal.valueOf((Double) value);
+        } else {
+            System.debug(LoggingLevel.ERROR, 'Unsupported type for decimal conversion: ' + getValueType(value));
+            return null;
         }
-        
-        if (value instanceof Double) {
-            return Decimal.valueOf((Double) value);
+
+        // Round to 5 decimal places to avoid excessive precision (e.g., 180.0000000000000000000000000000000000000)
+        if (result != null) {
+            result = result.setScale(5, System.RoundingMode.HALF_UP);
         }
-        
-        System.debug(LoggingLevel.ERROR, 'Unsupported type for decimal conversion: ' + getValueType(value));
-        return null;
+
+        return result;
     }
     
     /**
