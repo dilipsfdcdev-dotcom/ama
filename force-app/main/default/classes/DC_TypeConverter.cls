@@ -84,22 +84,34 @@ public with sharing class DC_TypeConverter {
     /**
      * Convert to String with HTML entity decoding
      * FIXED: Decodes HTML entities like &#39; (apostrophe) that come from Data Cloud
+     * FIXED: Formats numeric values properly to avoid excessive decimal precision
      */
     public static String convertToString(Object value) {
         if (value == null) return null;
-        
+
         String strValue;
         if (value instanceof String) {
             strValue = (String) value;
+        } else if (value instanceof Decimal || value instanceof Double) {
+            // Handle numeric types - format to avoid excessive precision
+            Decimal decValue = convertToDecimal(value); // This rounds to 5 decimal places
+            if (decValue != null) {
+                strValue = decValue.stripTrailingZeros().toPlainString();
+            } else {
+                strValue = String.valueOf(value);
+            }
+        } else if (value instanceof Integer || value instanceof Long) {
+            // Integer types don't need special formatting
+            strValue = String.valueOf(value);
         } else {
             strValue = String.valueOf(value);
         }
-        
+
         // Decode common HTML entities that may come from Data Cloud
         if (strValue.contains('&')) {
             strValue = decodeHtmlEntities(strValue);
         }
-        
+
         return strValue;
     }
     
