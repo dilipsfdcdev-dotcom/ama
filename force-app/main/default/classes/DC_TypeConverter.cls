@@ -92,6 +92,13 @@ public with sharing class DC_TypeConverter {
         String strValue;
         if (value instanceof String) {
             strValue = (String) value;
+            // Check if the string is actually a numeric value with excessive precision
+            if (isNumericString(strValue)) {
+                Decimal decValue = convertToDecimal(strValue); // This rounds to 5 decimal places
+                if (decValue != null) {
+                    strValue = decValue.stripTrailingZeros().toPlainString();
+                }
+            }
         } else if (value instanceof Decimal || value instanceof Double) {
             // Handle numeric types - format to avoid excessive precision
             Decimal decValue = convertToDecimal(value); // This rounds to 5 decimal places
@@ -113,6 +120,19 @@ public with sharing class DC_TypeConverter {
         }
 
         return strValue;
+    }
+
+    /**
+     * Check if a string represents a numeric value
+     * Matches patterns like: "229.000000000000000000", "28.000", "123", "-45.67"
+     */
+    private static Boolean isNumericString(String value) {
+        if (String.isBlank(value)) return false;
+
+        // Simple regex to match numeric strings (including decimals and negative numbers)
+        // Pattern: optional minus, digits, optional (decimal point + digits)
+        String trimmed = value.trim();
+        return Pattern.matches('^-?\\d+(\\.\\d+)?$', trimmed);
     }
     
     /**
