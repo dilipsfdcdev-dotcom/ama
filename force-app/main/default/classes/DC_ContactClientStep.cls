@@ -59,7 +59,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         Map<String, Map<String, Object>> addressByParty = queryAddressContactPointsCDP(allPartyIds);
         Map<String, Map<String, Object>> passportByParty = queryPassportDataCDP(allPartyIds);
         Map<String, List<Contact>> existingContactsByParty = queryExistingContactsByParty(
-            clientsByParty.keySet(), emailByParty, phoneByParty);
+            clientsByParty.keySet(), emailByParty, phoneByParty, clientsByParty);
         
         List<SObject> contactsToUpdate = new List<SObject>();
         List<SObject> contactsToInsert = new List<SObject>();
@@ -460,7 +460,8 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
     }
 
     private Map<String, List<Contact>> queryExistingContactsByParty(
-        Set<String> partyIds, Map<String, String> emailToPartyMap, Map<String, String> phoneToPartyMap) {
+        Set<String> partyIds, Map<String, String> emailToPartyMap, Map<String, String> phoneToPartyMap,
+        Map<String, List<Object>> clientsByParty) {
         
         Map<String, List<Contact>> result = new Map<String, List<Contact>>();
         for (String partyId : partyIds) result.put(partyId, new List<Contact>());
@@ -471,23 +472,63 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
         Set<Id> processedContactIds = new Set<Id>();
         
         if (!emailsToSearch.isEmpty()) {
-            for (Contact c : [SELECT Id, Client_ID__c, Email, Phone, LastModifiedDate FROM Contact 
-                             WHERE RecordType.Name = 'Client' AND Email IN :emailsToSearch]) {
+            for (Contact c : [SELECT Id, Client_ID__c, Email, Phone, LastModifiedDate FROM Contact
+                             WHERE RecordType.Name = 'Client' AND Email IN :emailsToSearch
+                             FOR UPDATE]) {
                 existingContacts.add(c);
                 processedContactIds.add(c.Id);
             }
         }
-        
+
         if (!phonesToSearch.isEmpty()) {
-            for (Contact c : [SELECT Id, Client_ID__c, Email, Phone, LastModifiedDate FROM Contact 
-                             WHERE RecordType.Name = 'Client' AND Phone IN :phonesToSearch AND Id NOT IN :processedContactIds]) {
+            for (Contact c : [SELECT Id, Client_ID__c, Email, Phone, LastModifiedDate FROM Contact
+                             WHERE RecordType.Name = 'Client' AND Phone IN :phonesToSearch AND Id NOT IN :processedContactIds
+                             FOR UPDATE]) {
                 existingContacts.add(c);
+                processedContactIds.add(c.Id);
             }
         }
-        
+
+        // NEW: Query by Client_ID to find all existing contacts with matching Client IDs
+        Set<String> clientIdsToSearch = new Set<String>();
+        for (String partyId : clientsByParty.keySet()) {
+            for (Object seawareClient : clientsByParty.get(partyId)) {
+                String clientId = getClientIdFromSeawareClient(seawareClient);
+                if (!String.isBlank(clientId)) {
+                    clientIdsToSearch.add(clientId);
+                }
+            }
+        }
+
+        if (!clientIdsToSearch.isEmpty()) {
+            for (Contact c : [SELECT Id, Client_ID__c, Email, Phone, LastModifiedDate FROM Contact
+                             WHERE RecordType.Name = 'Client' AND Client_ID__c IN :clientIdsToSearch
+                             AND Id NOT IN :processedContactIds
+                             FOR UPDATE]) {
+                existingContacts.add(c);
+                processedContactIds.add(c.Id);
+            }
+        }
+
         for (Contact contact : existingContacts) {
             String matchedPartyId = null;
-            if (!String.isBlank(contact.Email)) {
+
+            // Priority 1: Match by Client_ID (most reliable)
+            if (!String.isBlank(contact.Client_ID__c)) {
+                for (String partyId : clientsByParty.keySet()) {
+                    for (Object seawareClient : clientsByParty.get(partyId)) {
+                        String seawareClientId = getClientIdFromSeawareClient(seawareClient);
+                        if (!String.isBlank(seawareClientId) && seawareClientId == contact.Client_ID__c) {
+                            matchedPartyId = partyId;
+                            break;
+                        }
+                    }
+                    if (matchedPartyId != null) break;
+                }
+            }
+
+            // Priority 2: Match by Email (if not matched by Client_ID)
+            if (matchedPartyId == null && !String.isBlank(contact.Email)) {
                 for (String partyId : emailToPartyMap.keySet()) {
                     if (emailToPartyMap.get(partyId) == contact.Email) {
                         matchedPartyId = partyId;
@@ -495,6 +536,8 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                     }
                 }
             }
+
+            // Priority 3: Match by Phone (if not matched by Client_ID or Email)
             if (matchedPartyId == null && !String.isBlank(contact.Phone)) {
                 for (String partyId : phoneToPartyMap.keySet()) {
                     if (phoneToPartyMap.get(partyId) == contact.Phone) {
@@ -503,6 +546,7 @@ public with sharing class DC_ContactClientStep extends DC_BaseStep implements DC
                     }
                 }
             }
+
             if (matchedPartyId != null && result.containsKey(matchedPartyId)) {
                 result.get(matchedPartyId).add(contact);
             }
