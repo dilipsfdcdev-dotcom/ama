@@ -462,6 +462,17 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                 // UPDATE records that have Salesforce Id
                 if (!bundle.recordsToUpdate.isEmpty()) {
                     System.debug(LoggingLevel.WARN, 'Updating ' + bundle.recordsToUpdate.size() + ' existing records');
+
+                    // Set DC_Writeback_DateTime__c on all records before update
+                    DateTime writebackTimestamp = System.now();
+                    for (SObject rec : bundle.recordsToUpdate) {
+                        try {
+                            rec.put('DC_Writeback_DateTime__c', writebackTimestamp);
+                        } catch (Exception e) {
+                            // Field may not exist on this object - skip silently
+                        }
+                    }
+
                     Database.SaveResult[] updateResults = Database.update(bundle.recordsToUpdate, false);
                     
                     // **ADDED: Log update errors**
@@ -482,7 +493,18 @@ public with sharing class DC_StepRunner implements Queueable, Database.AllowsCal
                 // INSERT/UPSERT records without Salesforce Id
                 if (!bundle.records.isEmpty()) {
                     System.debug(LoggingLevel.WARN, 'Upserting ' + bundle.records.size() + ' new/existing records by external ID');
-                    Database.UpsertResult[] upsertResults = 
+
+                    // Set DC_Writeback_DateTime__c on all records before upsert
+                    DateTime writebackTimestamp = System.now();
+                    for (SObject rec : bundle.records) {
+                        try {
+                            rec.put('DC_Writeback_DateTime__c', writebackTimestamp);
+                        } catch (Exception e) {
+                            // Field may not exist on this object - skip silently
+                        }
+                    }
+
+                    Database.UpsertResult[] upsertResults =
                         DC_DmlUtil.upsertByExtId(bundle.records, bundle.externalIdField, false);
                     
                     // **ADDED: Log upsert errors**

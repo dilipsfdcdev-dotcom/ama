@@ -214,6 +214,12 @@ public with sharing class DC_AccountStep extends DC_BaseStep implements DC_IWher
 
             // Update accounts with parent lookups
             if (!accountsToUpdate.isEmpty()) {
+                // Set DC_Writeback_DateTime__c on all records before upsert
+                DateTime writebackTimestamp = System.now();
+                for (Account acc : accountsToUpdate) {
+                    acc.DC_Writeback_DateTime__c = writebackTimestamp;
+                }
+
                 Database.UpsertResult[] updateResults;
 
                 if (TV_INJECT && TV_USE_DIRECT_UPSERT) {
